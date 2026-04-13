@@ -2238,8 +2238,10 @@ async function publishToGist(){
   if(btn){btn.textContent='⏳ Публикую...';btn.disabled=true;}
 
   try{
+    // Strip sensitive fields before publishing to public Gist
+    const safeSettings=(()=>{const s={...cfg()};delete s.githubToken;delete s.gistId;return s;})();
     const data={
-      settings:cfg(),sales:sales(),expenses:exps(),
+      settings:safeSettings,sales:sales(),expenses:exps(),
       batches:batches(),plans:plans(),inventory:inventory(),
       publishedAt:new Date().toISOString()
     };
