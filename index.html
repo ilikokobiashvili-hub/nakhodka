@@ -108,6 +108,61 @@ textarea{resize:vertical;min-height:60px}
 ::-webkit-scrollbar{width:5px}
 ::-webkit-scrollbar-track{background:var(--bg)}
 ::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
+
+/* ═══ MOBILE ═══ */
+#mob-nav{display:none}
+@media(max-width:768px){
+  #sidebar{display:none}
+  #content{margin-left:0!important;padding:14px 12px 80px}
+  #mob-nav{
+    display:flex;position:fixed;bottom:0;left:0;right:0;z-index:200;
+    background:var(--surface);border-top:1px solid var(--border);
+    padding:6px 0 env(safe-area-inset-bottom,6px);
+  }
+  .mob-tab{
+    flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;
+    padding:6px 4px;cursor:pointer;border:none;background:none;
+    font-size:9px;font-weight:700;color:var(--muted);text-transform:uppercase;
+    letter-spacing:.4px;font-family:'Montserrat',sans-serif;transition:color .15s;
+  }
+  .mob-tab .mi{font-size:20px;line-height:1}
+  .mob-tab.active{color:var(--accent)}
+  .mob-tab.active .mi{filter:drop-shadow(0 0 4px var(--accent))}
+
+  .page-hdr{flex-direction:column;gap:10px;align-items:flex-start}
+  .page-title{font-size:20px}
+  .kpi-grid{grid-template-columns:1fr 1fr!important;gap:8px}
+  .kpi{padding:12px 14px}
+  .kpi-val{font-size:18px}
+
+  /* Tables → scrollable on mobile */
+  .tbl-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
+  table{min-width:500px}
+
+  /* Cards */
+  .card{border-radius:10px}
+  .card-hdr{padding:12px 14px}
+  .card-hdr h3{font-size:13px}
+
+  /* Forms */
+  .fg{grid-template-columns:1fr!important}
+  .fgrp.full{grid-column:1!important}
+  .m-box{width:95vw!important;max-height:85vh!important}
+
+  /* Dashboard period buttons */
+  .dash-periods{flex-wrap:wrap;gap:6px}
+  .dash-periods button{font-size:11px;padding:6px 10px}
+
+  /* Hide less critical columns on mobile */
+  .mob-hide{display:none!important}
+
+  /* PnL rows */
+  .pnl-r{padding:10px 12px!important;font-size:13px}
+
+  /* View mode banner */
+  #view-banner{padding:6px 12px!important;font-size:11px}
+  #view-banner .vb-detail{display:none}
+}
 </style>
 </head>
 <body>
@@ -143,6 +198,25 @@ textarea{resize:vertical;min-height:60px}
 
 <main id="content"></main>
 <div id="ov"><div id="mbox"></div></div>
+
+<!-- MOBILE BOTTOM NAV -->
+<nav id="mob-nav">
+  <button class="mob-tab active" data-p="dashboard" onclick="mobNav(this,'dashboard')">
+    <span class="mi">📊</span>Дашборд
+  </button>
+  <button class="mob-tab" data-p="sales" onclick="mobNav(this,'sales')">
+    <span class="mi">💰</span>Продажи
+  </button>
+  <button class="mob-tab" data-p="pnl" onclick="mobNav(this,'pnl')">
+    <span class="mi">📈</span>P&L
+  </button>
+  <button class="mob-tab" data-p="planning" onclick="mobNav(this,'planning')">
+    <span class="mi">💡</span>План
+  </button>
+  <button class="mob-tab" data-p="more" onclick="mobNav(this,'more')">
+    <span class="mi">☰</span>Ещё
+  </button>
+</nav>
 
 <script>
 // ═══ STORAGE ═══
@@ -2193,12 +2267,12 @@ async function publishToGist(){
 function viewModeBanner(){
   if(!_viewMode)return'';
   const pub=_gistData&&_gistData.publishedAt?new Date(_gistData.publishedAt).toLocaleString('ru-RU'):'—';
-  return`<div style="position:fixed;top:0;left:0;right:0;z-index:999;background:#1a1a2e;border-bottom:2px solid #a855f7;padding:8px 20px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+  return`<div id="view-banner" style="position:fixed;top:0;left:0;right:0;z-index:999;background:#1a1a2e;border-bottom:2px solid #a855f7;padding:8px 20px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
   <div style="display:flex;align-items:center;gap:10px">
     <span style="background:rgba(168,85,247,.2);border:1px solid #a855f7;border-radius:20px;padding:3px 12px;font-size:11px;font-weight:700;color:#a855f7;letter-spacing:.8px">👁 РЕЖИМ ПРОСМОТРА</span>
-    <span style="font-size:12px;color:var(--muted)">Обновлено: ${pub}</span>
+    <span class="vb-detail" style="font-size:12px;color:var(--muted)">Обновлено: ${pub}</span>
   </div>
-  <span style="font-size:11px;color:var(--muted)">Редактирование недоступно · Данные предоставлены владельцем</span>
+  <span class="vb-detail" style="font-size:11px;color:var(--muted)">Редактирование недоступно · Данные предоставлены владельцем</span>
 </div>`;
 }
 
@@ -2210,21 +2284,28 @@ function viewModeStyle(){
 // ── Init view mode ──
 async function initViewMode(){
   if(!_viewMode)return;
-  // Show loading
   document.getElementById('content').innerHTML=`
 <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:60vh;gap:16px">
   <div style="font-size:40px">⏳</div>
   <div style="font-size:16px;font-weight:600;color:var(--text)">Загружаю данные...</div>
   <div style="font-size:12px;color:var(--muted)">Получаю актуальные данные от владельца</div>
 </div>`;
-  // Add banner
   document.body.insertAdjacentHTML('afterbegin',viewModeBanner());
+  document.getElementById('content').style.marginTop='44px';
   try{
     _gistData=await fetchGistData(_gistId);
-    // Hide sidebar edit items
-    document.querySelectorAll('.nav-item[data-p="sales"],[data-p="expenses"],[data-p="batches"],[data-p="settings"]').forEach(el=>{
-      el.style.opacity='0.35';el.style.pointerEvents='none';el.title='Недоступно в режиме просмотра';
-    });
+    // ── KEY FIX: write gist data into localStorage so ALL render functions work ──
+    if(_gistData.settings)save(K.settings,_gistData.settings);
+    if(_gistData.sales)save(K.sales,_gistData.sales);
+    if(_gistData.expenses)save(K.expenses,_gistData.expenses);
+    if(_gistData.batches)save(K.batches,_gistData.batches);
+    if(_gistData.plans)save(K.plans,_gistData.plans);
+    if(_gistData.inventory)save(K.inventory,_gistData.inventory);
+    // Remove github token from view mode settings for security
+    const s=cfg();delete s.githubToken;delete s.gistId;save(K.settings,s);
+    // Lock editing
+    document.querySelectorAll('.nav-item[data-p="sales"],[data-p="expenses"],[data-p="batches"],[data-p="settings"]')
+      .forEach(el=>{el.style.opacity='0.35';el.style.pointerEvents='none';});
     render();
   }catch(e){
     document.getElementById('content').innerHTML=`
@@ -2236,7 +2317,43 @@ async function initViewMode(){
   }
 }
 
-// ═══ INIT ═══
+// ═══ MOBILE NAV ═══
+function mobNav(el,p){
+  document.querySelectorAll('.mob-tab').forEach(t=>t.classList.remove('active'));
+  if(el)el.classList.add('active');
+  if(p==='more'){showMoreMenu();return;}
+  nav(p);
+}
+
+function showMoreMenu(){
+  const pages=[
+    {p:'expenses',icon:'💸',label:'Расходы'},
+    {p:'batches',icon:'📦',label:'Партии'},
+    {p:'cashflow',icon:'💵',label:'Кэш-флоу'},
+    {p:'dynamics',icon:'📅',label:'Динамика'},
+    {p:'planfact',icon:'🎯',label:'План vs Факт'},
+    {p:'settings',icon:'⚙️',label:'Настройки'},
+  ];
+  showM(`
+<div class="m-hdr"><h2>☰ Все разделы</h2><button class="m-x" onclick="hideM()">×</button></div>
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:4px 0 8px">
+  ${pages.map(x=>`
+  <button onclick="hideM();nav('${x.p}');document.querySelectorAll('.mob-tab').forEach(t=>t.classList.remove('active'))"
+    style="display:flex;align-items:center;gap:10px;padding:14px 16px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;cursor:pointer;font-size:13px;font-weight:600;color:var(--text);font-family:'Montserrat',sans-serif;text-align:left">
+    <span style="font-size:22px">${x.icon}</span>${x.label}
+  </button>`).join('')}
+</div>`);
+}
+
+// Sync mobile nav active state with page nav
+const _origNav=nav;
+function nav(p){
+  _origNav(p);
+  // sync mobile tabs
+  document.querySelectorAll('.mob-tab').forEach(t=>{
+    t.classList.toggle('active',t.dataset.p===p);
+  });
+}
 if(!load(K.settings))save(K.settings,{...DEF});
 if(_viewMode){
   initViewMode();
