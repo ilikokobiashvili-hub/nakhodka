@@ -2325,6 +2325,12 @@ function mobNav(el,p){
   nav(p);
 }
 
+function syncMobTabs(p){
+  document.querySelectorAll('.mob-tab').forEach(t=>{
+    t.classList.toggle('active',t.dataset.p===p);
+  });
+}
+
 function showMoreMenu(){
   const pages=[
     {p:'expenses',icon:'💸',label:'Расходы'},
@@ -2338,21 +2344,11 @@ function showMoreMenu(){
 <div class="m-hdr"><h2>☰ Все разделы</h2><button class="m-x" onclick="hideM()">×</button></div>
 <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:4px 0 8px">
   ${pages.map(x=>`
-  <button onclick="hideM();nav('${x.p}');document.querySelectorAll('.mob-tab').forEach(t=>t.classList.remove('active'))"
+  <button onclick="hideM();nav('${x.p}');syncMobTabs('${x.p}')"
     style="display:flex;align-items:center;gap:10px;padding:14px 16px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;cursor:pointer;font-size:13px;font-weight:600;color:var(--text);font-family:'Montserrat',sans-serif;text-align:left">
     <span style="font-size:22px">${x.icon}</span>${x.label}
   </button>`).join('')}
 </div>`);
-}
-
-// Sync mobile nav active state with page nav
-const _origNav=nav;
-function nav(p){
-  _origNav(p);
-  // sync mobile tabs
-  document.querySelectorAll('.mob-tab').forEach(t=>{
-    t.classList.toggle('active',t.dataset.p===p);
-  });
 }
 if(!load(K.settings))save(K.settings,{...DEF});
 if(_viewMode){
