@@ -1,0 +1,2248 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>НАХОДКА — Учёт</title>
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0f0f0f;--surface:#1a1a1a;--surface2:#242424;
+  --accent:#f97316;--accent-dim:rgba(249,115,22,0.12);
+  --text:#f0f0f0;--muted:#777;--border:#2a2a2a;
+  --success:#22c55e;--danger:#ef4444;--warning:#eab308;--info:#3b82f6;
+  --sidebar-w:220px
+}
+body{font-family:'Montserrat',sans-serif;background:var(--bg);color:var(--text);display:flex;min-height:100vh;font-size:14px}
+#sidebar{width:var(--sidebar-w);background:var(--surface);border-right:1px solid var(--border);display:flex;flex-direction:column;position:fixed;top:0;left:0;bottom:0;overflow-y:auto;z-index:10}
+.sb-logo{padding:20px 16px;border-bottom:1px solid var(--border)}
+.sb-logo h1{font-size:20px;font-weight:700;color:var(--accent);letter-spacing:3px}
+.sb-logo p{font-size:11px;color:var(--muted);margin-top:3px}
+.nav-sec{padding:6px 0;border-bottom:1px solid var(--border)}
+.nav-lbl{font-size:10px;font-weight:700;letter-spacing:1.5px;color:var(--muted);padding:8px 16px 4px;text-transform:uppercase}
+.nav-item{display:flex;align-items:center;gap:10px;padding:9px 16px;cursor:pointer;color:var(--muted);font-size:13px;font-weight:500;transition:all .15s;border-left:3px solid transparent}
+.nav-item:hover{background:var(--surface2);color:var(--text)}
+.nav-item.active{color:var(--accent);border-left-color:var(--accent);background:var(--accent-dim)}
+.nav-icon{font-size:15px;width:20px;text-align:center}
+.sb-foot{padding:14px 16px;margin-top:auto;border-top:1px solid var(--border)}
+.sb-foot p{font-size:11px;color:var(--muted);text-align:center;line-height:1.6}
+
+#content{margin-left:var(--sidebar-w);flex:1;padding:28px;max-width:calc(100vw - var(--sidebar-w));min-height:100vh}
+.page-hdr{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:24px}
+.page-title{font-size:22px;font-weight:700}
+.page-sub{font-size:12px;color:var(--muted);margin-top:3px}
+
+.kpi-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(155px,1fr));gap:12px;margin-bottom:24px}
+.kpi{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px 16px}
+.kpi-lbl{font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.8px;margin-bottom:8px}
+.kpi-val{font-family:'JetBrains Mono',monospace;font-size:19px;font-weight:500}
+.kpi-val.accent{color:var(--accent)}
+.kpi-val.ok{color:var(--success)}
+.kpi-val.bad{color:var(--danger)}
+
+.card{background:var(--surface);border:1px solid var(--border);border-radius:10px;overflow:hidden;margin-bottom:20px}
+.card-hdr{padding:14px 18px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center}
+.card-hdr h3{font-size:14px;font-weight:600}
+.tbl-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
+.tbl-wrap::-webkit-scrollbar{height:4px}
+.tbl-wrap::-webkit-scrollbar-track{background:var(--surface2)}
+.tbl-wrap::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px}
+table{width:100%;border-collapse:collapse}
+th{background:var(--surface2);padding:9px 14px;text-align:left;font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.8px;border-bottom:1px solid var(--border);white-space:nowrap}
+td{padding:10px 14px;border-bottom:1px solid rgba(255,255,255,.04);font-size:13px;vertical-align:middle;white-space:nowrap}
+tr:last-child td{border-bottom:none}
+tr:hover td{background:rgba(255,255,255,.02)}
+th.sticky-r,td.sticky-r{position:sticky;right:0;background:var(--surface);z-index:2;box-shadow:-3px 0 8px rgba(0,0,0,.3)}
+tr:hover td.sticky-r{background:var(--surface2)}
+.r{text-align:right;font-family:'JetBrains Mono',monospace;font-weight:500}
+.ok{color:var(--success)}.bad{color:var(--danger)}.dim{color:var(--muted)}
+.empty{padding:48px;text-align:center;color:var(--muted)}
+
+.btn{display:inline-flex;align-items:center;gap:6px;padding:8px 15px;border-radius:8px;font-family:'Montserrat',sans-serif;font-size:13px;font-weight:600;cursor:pointer;border:none;transition:all .15s;white-space:nowrap}
+.btn-p{background:var(--accent);color:#fff}.btn-p:hover{opacity:.88}
+.btn-g{background:transparent;color:var(--muted);border:1px solid var(--border)}.btn-g:hover{background:var(--surface2);color:var(--text)}
+.btn-d{background:transparent;color:var(--danger);border:1px solid var(--danger);padding:4px 9px;font-size:11px;border-radius:6px;cursor:pointer;font-family:'Montserrat',sans-serif;font-weight:600}.btn-d:hover{background:rgba(239,68,68,.1)}
+.btn-e{background:transparent;color:var(--info);border:1px solid var(--info);padding:4px 9px;font-size:11px;border-radius:6px;cursor:pointer;font-family:'Montserrat',sans-serif;font-weight:600}.btn-e:hover{background:rgba(59,130,246,.12)}
+.btn-sm{padding:6px 12px;font-size:12px}
+.row-acts{display:flex;gap:5px;align-items:center}
+
+#ov{display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:1000;justify-content:center;align-items:flex-start;padding:40px 20px;overflow-y:auto}
+#ov.on{display:flex}
+#mbox{background:var(--surface);border:1px solid var(--border);border-radius:14px;width:100%;max-width:520px;padding:24px}
+.m-hdr{display:flex;justify-content:space-between;align-items:center;margin-bottom:20px}
+.m-hdr h2{font-size:16px;font-weight:700}
+.m-x{background:none;border:none;color:var(--muted);font-size:22px;cursor:pointer;padding:2px 8px;line-height:1}
+.m-x:hover{color:var(--text)}
+.m-foot{display:flex;justify-content:flex-end;gap:8px;margin-top:20px;padding-top:16px;border-top:1px solid var(--border)}
+
+.fg{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.fg.c1{grid-template-columns:1fr}
+.fg.c3{grid-template-columns:1fr 1fr 1fr}
+.fgrp{display:flex;flex-direction:column;gap:6px}
+.fgrp.full{grid-column:1/-1}
+label{font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.8px}
+input,select,textarea{background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);padding:9px 12px;font-family:'Montserrat',sans-serif;font-size:13px;outline:none;transition:border-color .15s;width:100%}
+input:focus,select:focus,textarea:focus{border-color:var(--accent)}
+select option{background:var(--surface2)}
+textarea{resize:vertical;min-height:60px}
+
+.badge{display:inline-flex;align-items:center;padding:3px 9px;border-radius:20px;font-size:11px;font-weight:600}
+.b-ok{background:rgba(34,197,94,.15);color:var(--success)}
+.b-bad{background:rgba(239,68,68,.15);color:var(--danger)}
+.b-warn{background:rgba(234,179,8,.15);color:var(--warning)}
+.b-info{background:rgba(59,130,246,.15);color:var(--info)}
+.b-dim{background:rgba(120,120,120,.15);color:var(--muted)}
+
+.pnl-blk{background:var(--surface);border:1px solid var(--border);border-radius:10px;overflow:hidden;margin-bottom:14px}
+.pnl-r{display:flex;justify-content:space-between;align-items:center;padding:10px 18px;border-bottom:1px solid rgba(255,255,255,.04)}
+.pnl-r:last-child{border-bottom:none}
+.pnl-r.hd{background:var(--surface2);font-weight:700;font-size:12px;color:var(--accent);text-transform:uppercase;letter-spacing:.8px}
+.pnl-r.tot{background:var(--surface2);font-weight:700;font-size:15px}
+.pnl-r.sub{padding-left:32px;color:var(--muted);font-size:12px}
+.pnl-n{font-family:'JetBrains Mono',monospace;font-weight:500}
+
+.fbar{display:flex;gap:10px;align-items:center;margin-bottom:20px;flex-wrap:wrap}
+.fbar label{font-size:12px;color:var(--muted)}
+
+::-webkit-scrollbar{width:5px}
+::-webkit-scrollbar-track{background:var(--bg)}
+::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
+</style>
+</head>
+<body>
+
+<nav id="sidebar">
+  <div class="sb-logo">
+    <h1>НАХОДКА</h1>
+    <p id="sb-sub">Розница · Секонд-хенд</p>
+  </div>
+  <div class="nav-sec">
+    <div class="nav-lbl">Главное</div>
+    <div class="nav-item active" data-p="dashboard"><span class="nav-icon">📊</span>Дашборд</div>
+  </div>
+  <div class="nav-sec">
+    <div class="nav-lbl">Данные</div>
+    <div class="nav-item" data-p="sales"><span class="nav-icon">💰</span>Продажи</div>
+    <div class="nav-item" data-p="expenses"><span class="nav-icon">💸</span>Расходы</div>
+    <div class="nav-item" data-p="batches"><span class="nav-icon">📦</span>Партии</div>
+  </div>
+  <div class="nav-sec">
+    <div class="nav-lbl">Аналитика</div>
+    <div class="nav-item" data-p="pnl"><span class="nav-icon">📈</span>P&L</div>
+    <div class="nav-item" data-p="cashflow"><span class="nav-icon">💵</span>Кэш-флоу</div>
+    <div class="nav-item" data-p="dynamics"><span class="nav-icon">📅</span>Динамика</div>
+    <div class="nav-item" data-p="planfact"><span class="nav-icon">🎯</span>План vs Факт</div>
+    <div class="nav-item" data-p="planning"><span class="nav-icon">💡</span>Планирование</div>
+  </div>
+  <div class="nav-sec">
+    <div class="nav-item" data-p="settings"><span class="nav-icon">⚙️</span>Настройки</div>
+  </div>
+  <div class="sb-foot"><p>Данные хранятся в браузере.<br>Делай бэкап в Настройках.</p></div>
+</nav>
+
+<main id="content"></main>
+<div id="ov"><div id="mbox"></div></div>
+
+<script>
+// ═══ STORAGE ═══
+const K={settings:'nk_settings',sales:'nk_sales',expenses:'nk_expenses',batches:'nk_batches',plans:'nk_plans',inventory:'nk_inventory'};
+const DEF={taxRate:.08,cashBalance:0,beznalBalance:0,storeName:'НАХОДКА',startDate:'2026-03-23'};
+const CATS=['Товар/Палеты','Доставка','Аренда','Зарплата','Маркетинг','Прочее','Ремонт','Оборудование'];
+const GOCAT=['Одежда женская','Одежда мужская','Одежда детская','Обувь','Аксессуары','Текстиль','Посуда','Игрушки','Электроника','Книги','Прочее'];
+const DEF_PRICE_CATS=[
+  {key:'s',    label:'S',    price:149},
+  {key:'m',    label:'M',    price:299},
+  {key:'l',    label:'L',    price:499},
+  {key:'xl1',  label:'1XL',  price:999},
+  {key:'xl15', label:'1.5XL',price:1499},
+  {key:'xl2',  label:'2XL',  price:1999},
+  {key:'xl3',  label:'3XL',  price:2999},
+  {key:'xl5',  label:'5XL',  price:4999},
+];
+const TIER_COLORS=['#6366f1','#22c55e','#f97316','#eab308','#ef4444','#ec4899','#14b8a6','#a855f7','#fb923c','#84cc16'];
+function priceCats(){const s=load(K.settings);return(s&&s.priceCats&&s.priceCats.length)?s.priceCats:DEF_PRICE_CATS;}
+
+function load(k){try{const r=localStorage.getItem(k);return r?JSON.parse(r):null}catch{return null}}
+function save(k,d){try{localStorage.setItem(k,JSON.stringify(d))}catch{}}
+function cfg(){return load(K.settings)||{...DEF}}
+function sales(){return load(K.sales)||[]}
+function exps(){return load(K.expenses)||[]}
+function batches(){return load(K.batches)||[]}
+function plans(){return load(K.plans)||[]}
+function inventory(){return load(K.inventory)||[]}
+function gid(){return Date.now().toString(36)+Math.random().toString(36).slice(2,7)}
+
+// ─── PRICE CAT HELPERS ───
+// Returns {qty, rev} summed from priceCats, or null if no data
+function tierSums(x){
+  if(!x.priceCats)return null;
+  let qty=0,rev=0;
+  Object.values(x.priceCats).forEach(v=>{qty+=v.qty||0;rev+=v.rev||0});
+  return qty>0?{qty,rev}:null;
+}
+// Best avg price per item: prefers tier data, falls back to total/checks
+function avgPerItem(x){
+  const ts=tierSums(x);
+  if(ts&&ts.qty>0)return ts.rev/ts.qty;
+  const t=(x.nal||0)+(x.beznal||0);
+  const chk=(x.nalChecks||0)+(x.beznalChecks||0);
+  return chk>0?t/chk:0;
+}
+
+// ═══ FORMAT ═══
+function fr(n){if(n===null||n===undefined||isNaN(n))return'—';return Math.round(n).toLocaleString('ru-RU')+' ₽'}
+function fn(n){return n?Math.round(n).toLocaleString('ru-RU'):'0'}
+function fp(n){return(n&&!isNaN(n))?(n*100).toFixed(1)+'%':'—'}
+function fd(s){if(!s)return'—';const d=new Date(s+'T00:00:00');return d.toLocaleDateString('ru-RU',{day:'2-digit',month:'2-digit',year:'numeric'})}
+function today(){return new Date().toISOString().slice(0,10)}
+function mk(d){return d.slice(0,7)}
+function ml(ym){const[y,m]=ym.split('-');const mn=['','Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'];return mn[+m]+' '+y}
+
+// ═══ CALCS ═══
+function calcPeriod(f,t){
+  const s=cfg();
+  const ms=sales().filter(x=>x.date>=f&&x.date<=t);
+  const me=exps().filter(x=>x.date>=f&&x.date<=t);
+  const mb=batches().filter(x=>x.date>=f&&x.date<=t);
+  const rev=ms.reduce((a,x)=>a+(x.nal||0)+(x.beznal||0),0);
+  const opexp=me.filter(x=>x.category!=='Товар/Палеты'&&x.category!=='Доставка').reduce((a,x)=>a+(x.nal||0)+(x.beznal||0),0);
+  const cogs=mb.reduce((a,x)=>a+(x.cost||0)+(x.delivery||0),0);
+  const exp=opexp+cogs;
+  const chk=ms.reduce((a,x)=>a+(x.nalChecks||0)+(x.beznalChecks||0),0);
+  const tierQty=ms.reduce((a,x)=>{const ts=tierSums(x);return a+(ts?ts.qty:0)},0);
+  const tierRev=ms.reduce((a,x)=>{const ts=tierSums(x);return a+(ts?ts.rev:0)},0);
+  const items=tierQty>0?tierQty:chk;
+  const avg=items>0?(tierQty>0?tierRev:rev)/items:0;
+  const tax=rev*s.taxRate;
+  // tier breakdown for the period
+  const cats=priceCats();
+  const tierTotals={};cats.forEach(c=>{tierTotals[c.key]={qty:0,rev:0}});
+  ms.forEach(x=>{if(x.priceCats)cats.forEach(c=>{if(x.priceCats[c.key]){tierTotals[c.key].qty+=x.priceCats[c.key].qty||0;tierTotals[c.key].rev+=x.priceCats[c.key].rev||0}})});
+  return{rev,exp,opexp,cogs,chk,items,tax,profit:rev-exp-tax,avg,tierTotals};
+}
+
+function calcMonth(){
+  const now=new Date(),ym=now.toISOString().slice(0,7),s=cfg();
+  const f=new Date(now.getFullYear(),now.getMonth(),1).toISOString().slice(0,10);
+  const t=today();
+  return calcPeriod(f,t);
+}
+
+function calcBal(){
+  const s=cfg();
+  let c=s.cashBalance||0,b=s.beznalBalance||0;
+  // Founder capital injections (beyond starting balance) tracked via founderInjections
+  (s.founderInjections||[]).forEach(x=>{if(x.type==='nal')c+=x.amount||0;else b+=x.amount||0;});
+  sales().forEach(x=>{c+=x.nal||0;b+=x.beznal||0});
+  // Only business-funded expenses reduce cash balance; founder-paid expenses don't touch business cash
+  exps().filter(x=>x.category!=='Товар/Палеты'&&x.category!=='Доставка'&&x.fundSource!=='founder')
+    .forEach(x=>{c-=x.nal||0;b-=x.beznal||0});
+  batches().forEach(x=>{
+    const t=(x.cost||0)+(x.delivery||0);
+    if(x.fundSource==='founder')return; // founder-paid batches don't reduce business cash
+    if(x.payType==='безнал')b-=t;else c-=t;
+  });
+  return{c,b};
+}
+
+function calcPnL(f,t){
+  const s=cfg();
+  const ms=sales().filter(x=>x.date>=f&&x.date<=t);
+  const me=exps().filter(x=>x.date>=f&&x.date<=t);
+  const mb=batches().filter(x=>x.date>=f&&x.date<=t);
+  const rn=ms.reduce((a,x)=>a+(x.nal||0),0);
+  const rb=ms.reduce((a,x)=>a+(x.beznal||0),0);
+  const rev=rn+rb;
+  const cb=mb.reduce((a,x)=>a+(x.cost||0),0);
+  const cd=mb.reduce((a,x)=>a+(x.delivery||0),0);
+  const cogs=cb+cd;
+  const gp=rev-cogs;
+  const bycat={};
+  CATS.forEach(c=>{bycat[c]=0});
+  me.forEach(e=>{const c=e.category||'Прочее';bycat[c]=(bycat[c]||0)+(e.nal||0)+(e.beznal||0)});
+  const opexp=Object.entries(bycat).filter(([k])=>k!=='Товар/Палеты'&&k!=='Доставка').reduce((a,[,v])=>a+v,0);
+  const ebitda=gp-opexp;
+  const tax=rev*s.taxRate;
+  const net=ebitda-tax;
+  return{rn,rb,rev,cb,cd,cogs,gp,gm:rev>0?gp/rev:0,bycat,opexp,ebitda,em:rev>0?ebitda/rev:0,tax,net,nm:rev>0?net/rev:0};
+}
+
+function calcDyn(){
+  const s=cfg();
+  const allDates=new Set([...sales().map(x=>mk(x.date)),...exps().map(x=>mk(x.date)),...batches().map(x=>mk(x.date))]);
+  return Array.from(allDates).sort().map(ym=>{
+    const ms=sales().filter(x=>x.date.startsWith(ym));
+    const me=exps().filter(x=>x.date.startsWith(ym));
+    const mb=batches().filter(x=>x.date.startsWith(ym));
+    const rev=ms.reduce((a,x)=>a+(x.nal||0)+(x.beznal||0),0);
+    // opex excludes Товар/Палеты and Доставка — tracked via Партии
+    const opexp=me.filter(x=>x.category!=='Товар/Палеты'&&x.category!=='Доставка').reduce((a,x)=>a+(x.nal||0)+(x.beznal||0),0);
+    const cogs=mb.reduce((a,x)=>a+(x.cost||0)+(x.delivery||0),0);
+    const exp=opexp+cogs;
+    const chk=ms.reduce((a,x)=>a+(x.nalChecks||0)+(x.beznalChecks||0),0);
+    const tierQty=ms.reduce((a,x)=>{const ts=tierSums(x);return a+(ts?ts.qty:0)},0);
+    const tierRev=ms.reduce((a,x)=>{const ts=tierSums(x);return a+(ts?ts.rev:0)},0);
+    const items=tierQty>0?tierQty:chk;
+    const avg=items>0?(tierQty>0?tierRev:rev)/items:0;
+    const tax=rev*s.taxRate;
+    const gp=rev-cogs;
+    const net=gp-opexp-tax;
+    return{ym,rev,exp,opexp,cogs,gp,tax,net,chk,items,avg};
+  });
+}
+
+// ═══ NAV ═══
+let page='dashboard';
+function nav(p){
+  page=p;
+  document.querySelectorAll('.nav-item').forEach(el=>el.classList.toggle('active',el.dataset.p===p));
+  render();
+}
+document.querySelectorAll('.nav-item').forEach(el=>el.addEventListener('click',()=>nav(el.dataset.p)));
+
+// ═══ MODAL ═══
+function showM(html){
+  document.getElementById('mbox').innerHTML=html;
+  document.getElementById('ov').classList.add('on');
+  // attach tier input listeners if present
+  if(document.querySelectorAll('.tier-qty').length>0)attachTierListeners();
+}
+function hideM(){document.getElementById('ov').classList.remove('on')}
+document.getElementById('ov').addEventListener('click',function(e){if(e.target===this)hideM()});
+
+// ═══ RENDER ═══
+let pnlF=new Date(new Date().getFullYear(),new Date().getMonth(),1).toISOString().slice(0,10);
+let pnlT=today();
+
+// ─── DASHBOARD FILTER STATE ───
+let dashPeriod='month'; // 'today' | 'week' | 'month' | 'custom'
+let dashCustomF=new Date(new Date().getFullYear(),new Date().getMonth(),1).toISOString().slice(0,10);
+let dashCustomT=today();
+
+function dashRange(){
+  const t=today();
+  if(dashPeriod==='today') return{f:t,t:t};
+  if(dashPeriod==='week'){
+    const d=new Date();const day=d.getDay()||7;
+    d.setDate(d.getDate()-day+1);
+    return{f:d.toISOString().slice(0,10),t:t};
+  }
+  if(dashPeriod==='month'){
+    const d=new Date();
+    return{f:new Date(d.getFullYear(),d.getMonth(),1).toISOString().slice(0,10),t:t};
+  }
+  return{f:dashCustomF,t:dashCustomT};
+}
+
+function render(){
+  const c=document.getElementById('content');
+  const pages={dashboard:rDash,sales:rSales,expenses:rExp,batches:rBatch,pnl:rPnL,cashflow:rCash,dynamics:rDyn,planfact:rPF,planning:rPlanning,settings:rSet};
+  c.innerHTML=(pages[page]||rDash)();
+  const s=cfg();
+  document.getElementById('sb-sub').textContent=s.storeName||'Розница · Секонд-хенд';
+}
+
+// ─── DASHBOARD ───
+function periodLabel(){
+  const r=dashRange();
+  if(dashPeriod==='today')return'Сегодня · '+fd(r.f);
+  if(dashPeriod==='week')return'Эта неделя · '+fd(r.f)+' — '+fd(r.t);
+  if(dashPeriod==='month'){const d=new Date();return d.toLocaleDateString('ru-RU',{month:'long',year:'numeric'});}
+  return fd(r.f)+' — '+fd(r.t);
+}
+function setDashPeriod(p){dashPeriod=p;render();}
+
+function rDash(){
+  const r=dashRange();
+  const cm=calcPeriod(r.f,r.t),bal=calcBal(),s=cfg();
+  const ss=sales().filter(x=>x.date>=r.f&&x.date<=r.t).sort((a,b)=>b.date.localeCompare(a.date));
+  const hasTiers=Object.values(cm.tierTotals).some(v=>v.qty>0);
+  const cats=priceCats();
+  const totalTierQty=Object.values(cm.tierTotals).reduce((a,v)=>a+v.qty,0);
+  const btnStyle=(p)=>`padding:7px 14px;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;font-family:'Montserrat',sans-serif;border:none;transition:all .15s;${dashPeriod===p?'background:var(--accent);color:#fff;':'background:var(--surface2);color:var(--muted);'}`;
+  return`
+<div class="page-hdr" style="flex-wrap:wrap;gap:12px">
+  <div><div class="page-title">Дашборд</div><div class="page-sub">${periodLabel()}</div></div>
+  <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+    <button style="${btnStyle('today')}" onclick="setDashPeriod('today')">Сегодня</button>
+    <button style="${btnStyle('week')}" onclick="setDashPeriod('week')">Неделя</button>
+    <button style="${btnStyle('month')}" onclick="setDashPeriod('month')">Месяц</button>
+    <button style="${btnStyle('custom')}" onclick="setDashPeriod('custom')">Период</button>
+    ${dashPeriod==='custom'?`
+    <input type="date" value="${dashCustomF}" onchange="dashCustomF=this.value;render()" style="padding:6px 10px;font-size:12px;border-radius:8px;background:var(--surface2);border:1px solid var(--border);color:var(--text);font-family:'Montserrat',sans-serif;outline:none">
+    <span style="color:var(--muted);font-size:12px">—</span>
+    <input type="date" value="${dashCustomT}" onchange="dashCustomT=this.value;render()" style="padding:6px 10px;font-size:12px;border-radius:8px;background:var(--surface2);border:1px solid var(--border);color:var(--text);font-family:'Montserrat',sans-serif;outline:none">`:''}
+    ${!_viewMode?`<button id="gist-pub-btn" onclick="publishToGist()" style="padding:7px 14px;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;font-family:'Montserrat',sans-serif;border:none;background:${s.gistId?'rgba(168,85,247,.15)':'var(--surface2)'};color:${s.gistId?'#a855f7':'var(--muted)'};border:1px solid ${s.gistId?'#a855f7':'var(--border)'};transition:all .15s" title="${s.gistId?'Обновить данные для партнёров':'Опубликовать для партнёров'}">📤 ${s.gistId?'Обновить':'Опубликовать'}</button>`:''}
+  </div>
+</div>
+
+<div class="kpi-grid">
+  <div class="kpi"><div class="kpi-lbl">Выручка</div><div class="kpi-val accent">${fr(cm.rev)}</div></div>
+  <div class="kpi"><div class="kpi-lbl">Расходы опер.</div><div class="kpi-val">${fr(cm.opexp)}</div></div>
+  <div class="kpi"><div class="kpi-lbl">Себест. (партии)</div><div class="kpi-val">${fr(cm.cogs)}</div></div>
+  <div class="kpi"><div class="kpi-lbl">Чистая прибыль</div><div class="kpi-val ${cm.profit>=0?'ok':'bad'}">${fr(cm.profit)}</div></div>
+  <div class="kpi"><div class="kpi-lbl">Налог АУСН ${(s.taxRate*100).toFixed(0)}%</div><div class="kpi-val">${fr(cm.tax)}</div></div>
+  <div class="kpi"><div class="kpi-lbl">Остаток НАЛ</div><div class="kpi-val ${bal.c>=0?'':'bad'}">${fr(bal.c)}</div></div>
+  <div class="kpi"><div class="kpi-lbl">Остаток БЕЗНАЛ</div><div class="kpi-val ${bal.b>=0?'':'bad'}">${fr(bal.b)}</div></div>
+  <div class="kpi"><div class="kpi-lbl">Ср. цена / шт</div><div class="kpi-val">${fr(cm.avg)}</div></div>
+  <div class="kpi"><div class="kpi-lbl">Продано штук</div><div class="kpi-val">${fn(cm.items||cm.chk)}</div></div>
+</div>
+
+${hasTiers?`<div class="card" style="margin-bottom:16px">
+  <div class="card-hdr"><h3>📊 Продажи по ценовым категориям</h3><span style="font-size:12px;color:var(--muted)">${totalTierQty} шт итого</span></div>
+  <div style="padding:0 18px 4px">
+    <div style="display:flex;gap:2px;height:8px;margin:12px 0;border-radius:4px;overflow:hidden;background:var(--surface2)">
+      ${cats.map((t,i)=>cm.tierTotals[t.key]&&cm.tierTotals[t.key].qty>0?`<div style="flex:${cm.tierTotals[t.key].qty};background:${TIER_COLORS[i%TIER_COLORS.length]}"></div>`:'').join('')}
+    </div>
+    <div style="display:flex;flex-wrap:wrap;gap:8px;padding-bottom:14px">
+      ${cats.map((t,i)=>cm.tierTotals[t.key]&&cm.tierTotals[t.key].qty>0?`
+        <div style="background:${TIER_COLORS[i%TIER_COLORS.length]}18;border:1px solid ${TIER_COLORS[i%TIER_COLORS.length]}44;border-radius:8px;padding:10px 14px;min-width:80px">
+          <div style="font-size:12px;font-weight:700;color:${TIER_COLORS[i%TIER_COLORS.length]};margin-bottom:1px">${t.label}</div>
+          <div style="font-size:10px;color:var(--muted);margin-bottom:6px">${t.price.toLocaleString('ru-RU')} ₽/шт</div>
+          <div style="font-family:'JetBrains Mono',monospace;font-size:20px;font-weight:700;color:var(--text)">${cm.tierTotals[t.key].qty}</div>
+          <div style="font-size:11px;color:var(--muted);margin-top:2px">${Math.round(cm.tierTotals[t.key].rev).toLocaleString('ru-RU')} ₽</div>
+        </div>`:'').join('')}
+    </div>
+  </div>
+</div>`:''}
+
+<div class="card">
+  <div class="card-hdr"><h3>Продажи за период</h3>
+  <div style="display:flex;gap:8px">
+    <button class="btn btn-sm" style="background:transparent;border:1px solid var(--accent);color:var(--accent);padding:5px 10px;font-size:12px;border-radius:7px;cursor:pointer;font-family:Montserrat,sans-serif;font-weight:600" onclick="oEvotor()">📄 CSV Эвотор</button>
+    <button class="btn btn-p btn-sm" onclick="oAddSale()">+ Вручную</button>
+  </div></div>
+  ${ss.length===0?'<div class="empty">Продаж за этот период нет.</div>':`
+  <div class="tbl-wrap"><table><thead><tr><th>Дата</th><th class="r">НАЛ</th><th class="r">БЕЗНАЛ</th><th class="r">Итого</th><th class="r">Штук</th><th class="r">Ср. цена/шт</th><th class="r">Налог</th></tr></thead>
+  <tbody>${ss.map(x=>{const t=(x.nal||0)+(x.beznal||0),ts=tierSums(x),items=ts?ts.qty:((x.nalChecks||0)+(x.beznalChecks||0)),avgP=avgPerItem(x),tax=t*s.taxRate;return`<tr>
+    <td>${fd(x.date)}</td><td class="r ok">${x.nal?fr(x.nal):'—'}</td><td class="r ok">${x.beznal?fr(x.beznal):'—'}</td>
+    <td class="r" style="color:var(--accent);font-weight:600">${fr(t)}</td>
+    <td class="r dim">${items||'—'}</td>
+    <td class="r">${avgP?fr(avgP):'—'}</td>
+    <td class="r dim">${fr(tax)}</td></tr>`}).join('')}
+  </tbody></table></div>`}
+</div>`;
+}
+
+// ─── SALES ───
+function tierBadges(pc){
+  if(!pc)return'';
+  const cats=priceCats();
+  return cats.filter(t=>pc[t.key]&&pc[t.key].qty>0).map((t,i)=>
+    `<span style="background:${TIER_COLORS[i%TIER_COLORS.length]}22;color:${TIER_COLORS[i%TIER_COLORS.length]};border-radius:4px;padding:1px 7px;font-size:10px;font-weight:700;margin-right:2px;white-space:nowrap">${t.label}: ${pc[t.key].qty}шт</span>`
+  ).join('');
+}
+function rSales(){
+  const ss=sales().sort((a,b)=>b.date.localeCompare(a.date)),s=cfg();
+  const cats=priceCats();
+  const ym=new Date().toISOString().slice(0,7);
+  const msales=sales().filter(x=>x.date.startsWith(ym));
+  const tierTotals={};cats.forEach(t=>{tierTotals[t.key]={qty:0,rev:0}});
+  msales.forEach(x=>{if(x.priceCats)cats.forEach(t=>{if(x.priceCats[t.key]){tierTotals[t.key].qty+=x.priceCats[t.key].qty||0;tierTotals[t.key].rev+=x.priceCats[t.key].rev||0}})});
+  const hasTiers=Object.values(tierTotals).some(v=>v.qty>0);
+  const totalTierQty=Object.values(tierTotals).reduce((a,v)=>a+v.qty,0);
+  return`
+<div class="page-hdr"><div><div class="page-title">Продажи</div><div class="page-sub">Ежедневные итоги смены</div></div>
+<div style="display:flex;gap:10px">
+  <button class="btn btn-p" onclick="oEvotor()" style="background:var(--surface2);border:1px solid var(--accent);color:var(--accent)">📄 Загрузить из Эвотора</button>
+  <button class="btn btn-p" onclick="oAddSale()">+ Вручную</button>
+</div></div>
+
+${hasTiers?`<div class="card" style="margin-bottom:16px">
+  <div class="card-hdr"><h3>📊 Продажи по ценовым категориям — текущий месяц</h3><span style="font-size:12px;color:var(--muted)">${totalTierQty} шт итого</span></div>
+  <div style="padding:0 18px 4px">
+    <div style="display:flex;gap:2px;height:8px;margin:12px 0;border-radius:4px;overflow:hidden;background:var(--surface2)">
+      ${cats.map((t,i)=>tierTotals[t.key].qty>0?`<div style="flex:${tierTotals[t.key].qty};background:${TIER_COLORS[i%TIER_COLORS.length]}" title="${t.label}: ${tierTotals[t.key].qty}шт"></div>`:'').join('')}
+    </div>
+    <div style="display:flex;flex-wrap:wrap;gap:8px;padding-bottom:14px">
+      ${cats.map((t,i)=>tierTotals[t.key].qty>0?`
+        <div style="background:${TIER_COLORS[i%TIER_COLORS.length]}18;border:1px solid ${TIER_COLORS[i%TIER_COLORS.length]}44;border-radius:8px;padding:10px 14px;min-width:80px">
+          <div style="font-size:12px;font-weight:700;color:${TIER_COLORS[i%TIER_COLORS.length]};margin-bottom:1px">${t.label}</div>
+          <div style="font-size:10px;color:var(--muted);margin-bottom:6px">${t.price.toLocaleString('ru-RU')} ₽/шт</div>
+          <div style="font-family:'JetBrains Mono',monospace;font-size:20px;font-weight:700;color:var(--text)">${tierTotals[t.key].qty}</div>
+          <div style="font-size:11px;color:var(--muted);margin-top:2px">${Math.round(tierTotals[t.key].rev).toLocaleString('ru-RU')} ₽</div>
+        </div>`:'').join('')}
+    </div>
+  </div>
+</div>`:''}
+
+<div class="card">
+  ${ss.length===0?'<div class="empty">Нет записей. Нажмите «📄 Загрузить из Эвотора» или «+ Вручную»</div>':`
+  <div class="tbl-wrap"><table><thead><tr><th>Дата</th><th class="r">НАЛ</th><th class="r">БЕЗНАЛ</th><th class="r">Итого</th><th class="r">Чеков</th><th class="r">Штук продано</th><th class="r">Ср. цена/шт</th><th class="r">Налог АУСН</th><th>Ценовые категории</th><th>Источник</th><th class="sticky-r"></th></tr></thead>
+  <tbody>${ss.map(x=>{const t=(x.nal||0)+(x.beznal||0),chk=(x.nalChecks||0)+(x.beznalChecks||0),ts=tierSums(x),items=ts?ts.qty:chk,avgP=avgPerItem(x),tax=t*s.taxRate;return`<tr>
+    <td>${fd(x.date)}</td><td class="r">${x.nal?fr(x.nal):'—'}</td><td class="r">${x.beznal?fr(x.beznal):'—'}</td>
+    <td class="r" style="color:var(--accent);font-weight:600">${fr(t)}</td>
+    <td class="r dim">${chk||'—'}</td>
+    <td class="r" style="font-weight:600;color:var(--text)">${items||'—'}</td>
+    <td class="r">${avgP?fr(avgP):'—'}${ts&&chk?' <span style="font-size:9px;color:var(--muted)" title="Считается по штукам из ценовых категорий">★</span>':''}</td>
+    <td class="r dim">${fr(tax)}</td>
+    <td style="min-width:180px;white-space:normal">${tierBadges(x.priceCats)||'<span style="color:var(--muted);font-size:11px">—</span>'}</td>
+    <td><span class="badge ${x.source==='evotor'?'b-ok':'b-dim'}" style="font-size:10px">${x.source==='evotor'?'📄 CSV':'✏️ Вручную'}</span></td>
+    <td class="sticky-r"><div class="row-acts"><button class="btn-e" onclick="oEditSale('${x.id}')">✏️</button><button class="btn-d" onclick="delSale('${x.id}')">✕</button></div></td></tr>`}).join('')}
+  </tbody></table></div>`}
+</div>`;
+  return`
+<div class="page-hdr"><div><div class="page-title">Продажи</div><div class="page-sub">Ежедневные итоги смены</div></div>
+<div style="display:flex;gap:10px">
+  <button class="btn btn-p" onclick="oEvotor()" style="background:var(--surface2);border:1px solid var(--accent);color:var(--accent)">📄 Загрузить из Эвотора</button>
+  <button class="btn btn-p" onclick="oAddSale()">+ Вручную</button>
+</div></div>
+
+${hasTiers?`<div class="card" style="margin-bottom:16px">
+  <div class="card-hdr"><h3>📊 Структура продаж по ценам — текущий месяц</h3></div>
+  <div style="display:flex;gap:0;overflow:hidden">
+    ${PRICE_TIERS.map((t,i)=>{const d=tierTotals[t.key];return d.qty>0?`<div style="flex:${d.qty};background:${TIER_COLORS[i]}22;border-right:1px solid var(--bg);padding:12px 14px;min-width:0">
+      <div style="font-size:10px;font-weight:700;color:${TIER_COLORS[i]};margin-bottom:4px">${t.label}</div>
+      <div style="font-family:'JetBrains Mono',monospace;font-size:15px;font-weight:700;color:var(--text)">${d.qty} шт</div>
+      ${d.rev?`<div style="font-size:11px;color:var(--muted);margin-top:2px">${fr(d.rev)}</div>`:''}
+    </div>`:''}).join('')}
+  </div>
+</div>`:''}
+
+<div class="card">
+  ${ss.length===0?'<div class="empty">Нет записей. Нажмите «📄 Загрузить из Эвотора» или «+ Вручную»</div>':`
+  <table><thead><tr><th>Дата</th><th class="r">НАЛ</th><th class="r">БЕЗНАЛ</th><th class="r">Итого</th><th class="r">Чеки нал</th><th class="r">Чеки безнал</th><th class="r">Ср. чек</th><th class="r">Налог АУСН</th><th>Ценовые тиры</th><th>Источник</th><th></th></tr></thead>
+  <tbody>${ss.map(x=>{const t=(x.nal||0)+(x.beznal||0),chk=(x.nalChecks||0)+(x.beznalChecks||0),avg=chk>0?t/chk:0,tax=t*s.taxRate;return`<tr>
+    <td>${fd(x.date)}</td><td class="r">${x.nal?fr(x.nal):'—'}</td><td class="r">${x.beznal?fr(x.beznal):'—'}</td>
+    <td class="r" style="color:var(--accent);font-weight:600">${fr(t)}</td>
+    <td class="r dim">${x.nalChecks||'—'}</td><td class="r dim">${x.beznalChecks||'—'}</td>
+    <td class="r">${avg?fr(avg):'—'}</td><td class="r dim">${fr(tax)}</td>
+    <td style="min-width:160px">${tierBadges(x.priceCats)||'<span style="color:var(--muted);font-size:11px">—</span>'}</td>
+    <td><span class="badge ${x.source==='evotor'?'b-ok':'b-dim'}" style="font-size:10px">${x.source==='evotor'?'📄 CSV':'✏️ Вручную'}</span></td>
+    <td><div class="row-acts"><button class="btn-e" onclick="oEditSale('${x.id}')">✏️</button><button class="btn-d" onclick="delSale('${x.id}')">✕</button></div></td></tr>`}).join('')}
+  </tbody></table>`}
+</div>`;
+}
+
+function rExp(){
+  const ee=exps().sort((a,b)=>b.date.localeCompare(a.date));
+  const cc={'Товар/Палеты':'b-info','Доставка':'b-info','Аренда':'b-warn','Зарплата':'b-warn','Маркетинг':'b-ok','Прочее':'b-dim','Ремонт':'b-bad','Оборудование':'b-bad'};
+  const hasDupCats=ee.some(x=>x.category==='Товар/Палеты'||x.category==='Доставка');
+  const bizTotal=ee.filter(x=>x.fundSource!=='founder'&&x.category!=='Товар/Палеты'&&x.category!=='Доставка').reduce((a,x)=>a+(x.nal||0)+(x.beznal||0),0);
+  const fndTotal=ee.filter(x=>x.fundSource==='founder'&&x.category!=='Товар/Палеты'&&x.category!=='Доставка').reduce((a,x)=>a+(x.nal||0)+(x.beznal||0),0);
+  return`
+<div class="page-hdr"><div><div class="page-title">Расходы</div><div class="page-sub">Полный учёт затрат</div></div>
+<button class="btn btn-p" onclick="oAddExp()">+ Добавить</button></div>
+
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;max-width:500px;margin-bottom:20px">
+  <div class="kpi" style="border-color:var(--border)">
+    <div class="kpi-lbl">💼 Из оборотного капитала</div>
+    <div class="kpi-val bad">${fr(bizTotal)}</div>
+  </div>
+  <div class="kpi" style="border-color:rgba(168,85,247,.4)">
+    <div class="kpi-lbl">🙋 Вложено основателем</div>
+    <div class="kpi-val" style="color:#a855f7">${fr(fndTotal)}</div>
+  </div>
+</div>
+
+<div style="background:rgba(59,130,246,.08);border:1px solid rgba(59,130,246,.3);border-radius:10px;padding:14px 18px;margin-bottom:20px;display:flex;gap:14px;align-items:flex-start">
+  <span style="font-size:20px;flex-shrink:0">ℹ️</span>
+  <div style="font-size:12px;line-height:1.7">
+    <div style="font-weight:700;color:var(--info);margin-bottom:3px">Два источника расходов</div>
+    <div style="color:var(--muted)">
+      <b style="color:var(--text)">💼 Оборотный капитал</b> — деньги бизнеса. Уменьшают кассу и учитываются в P&L.<br>
+      <b style="color:#a855f7">🙋 Вложения основателя</b> — ты платишь из личных средств. Касса бизнеса не уменьшается, но расход учитывается в P&L.<br>
+      <span style="color:var(--warning)">⚠️ Категории «Товар/Палеты» и «Доставка» не учитываются в итогах — используй раздел «Партии».</span>
+    </div>
+  </div>
+</div>
+
+${hasDupCats?`<div style="background:rgba(234,179,8,.08);border:1px solid rgba(234,179,8,.3);border-radius:10px;padding:12px 18px;margin-bottom:16px;font-size:12px">
+  <b style="color:var(--warning)">⚠️ Найдены записи категорий «Товар/Палеты» / «Доставка»</b> — если уже внесены в <b>Партии</b>, удали эти записи.
+</div>`:''}
+
+<div class="card">
+  ${ee.length===0?'<div class="empty">Нет записей. Нажмите «+ Добавить»</div>':`
+  <div class="tbl-wrap"><table><thead><tr><th>Дата</th><th>Описание</th><th>Категория</th><th>Источник</th><th class="r">НАЛ</th><th class="r">БЕЗНАЛ</th><th class="r">Итого</th><th>Примечание</th><th class="sticky-r"></th></tr></thead>
+  <tbody>${ee.map(x=>{const t=(x.nal||0)+(x.beznal||0);const isDup=x.category==='Товар/Палеты'||x.category==='Доставка';const isFounder=x.fundSource==='founder';return`<tr style="${isDup?'opacity:0.55':''}">
+    <td>${fd(x.date)}</td><td style="font-weight:500">${x.description||'—'}${isDup?` <span style="font-size:9px;background:rgba(234,179,8,.2);color:var(--warning);border-radius:3px;padding:1px 5px;margin-left:4px">не считается</span>`:''}</td>
+    <td><span class="badge ${cc[x.category]||'b-dim'}">${x.category||'—'}</span></td>
+    <td><span class="badge" style="${isFounder?'background:rgba(168,85,247,.15);color:#a855f7':'background:rgba(120,120,120,.1);color:var(--muted)'}">${isFounder?'🙋 Основатель':'💼 Бизнес'}</span></td>
+    <td class="r">${x.nal?fr(x.nal):'—'}</td><td class="r">${x.beznal?fr(x.beznal):'—'}</td>
+    <td class="r bad">${fr(t)}</td><td class="dim" style="font-size:12px;white-space:normal;min-width:100px">${x.note||''}</td>
+    <td class="sticky-r"><div class="row-acts"><button class="btn-e" onclick="oEditExp('${x.id}')">✏️</button><button class="btn-d" onclick="delExp('${x.id}')">✕</button></div></td></tr>`}).join('')}
+  </tbody></table></div>`}
+</div>`;
+}
+
+// ─── BATCHES ───
+function rBatch(){
+  const bb=batches().sort((a,b)=>b.date.localeCompare(a.date));
+  const bizBatches=bb.filter(x=>x.fundSource!=='founder');
+  const fndBatches=bb.filter(x=>x.fundSource==='founder');
+  const bizTotal=bizBatches.reduce((a,x)=>a+(x.cost||0)+(x.delivery||0),0);
+  const fndTotal=fndBatches.reduce((a,x)=>a+(x.cost||0)+(x.delivery||0),0);
+  return`
+<div class="page-hdr"><div><div class="page-title">Партии</div><div class="page-sub">Учёт закупок палет · Себестоимость Метод 2</div></div>
+<button class="btn btn-p" onclick="oAddBatch()">+ Добавить</button></div>
+
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;max-width:500px;margin-bottom:20px">
+  <div class="kpi"><div class="kpi-lbl">💼 Из оборотного капитала</div><div class="kpi-val bad">${fr(bizTotal)}</div></div>
+  <div class="kpi" style="border-color:rgba(168,85,247,.4)"><div class="kpi-lbl">🙋 Вложено основателем</div><div class="kpi-val" style="color:#a855f7">${fr(fndTotal)}</div></div>
+</div>
+
+<div class="card">
+  ${bb.length===0?'<div class="empty">Нет записей. Нажмите «+ Добавить»</div>':`
+  <div class="tbl-wrap"><table><thead><tr><th>Дата</th><th>№</th><th>Тип</th><th class="r">Палет</th><th class="r">Стоим.</th><th class="r">Доставка</th><th class="r">Итого</th><th class="r">Единиц</th><th class="r">Себест./шт (общая)</th><th>Источник</th><th>Оплата</th><th class="sticky-r"></th></tr></thead>
+  <tbody>${bb.map(x=>{
+    const t=(x.cost||0)+(x.delivery||0),cpu=x.units>0?t/x.units:0;
+    const isFounder=x.fundSource==='founder';
+    const hasCogs=x.cogsItems&&x.cogsItems.length>0;
+    return`<tr>
+    <td>${fd(x.date)}</td><td style="font-weight:600">${x.batchNum||'—'}</td><td>${x.paletType||'—'}</td>
+    <td class="r">${x.paletCount||'—'}</td><td class="r">${fr(x.cost)}</td>
+    <td class="r dim">${x.delivery?fr(x.delivery):'—'}</td>
+    <td class="r bad">${fr(t)}</td><td class="r">${x.units||'—'}</td>
+    <td class="r dim" style="font-size:12px">${cpu?fr(cpu):'—'}</td>
+    <td><span class="badge" style="${isFounder?'background:rgba(168,85,247,.15);color:#a855f7':'background:rgba(120,120,120,.1);color:var(--muted)'}">${isFounder?'🙋 Осн.':'💼 Бизнес'}</span></td>
+    <td><span class="badge ${x.payType==='безнал'?'b-info':'b-dim'}">${x.payType||'нал'}</span></td>
+    <td class="sticky-r"><div class="row-acts"><button class="btn-e" onclick="oEditBatch('${x.id}')">✏️</button><button class="btn-d" onclick="delBatch('${x.id}')">✕</button></div></td></tr>
+    ${hasCogs?`<tr style="background:rgba(249,115,22,.04)"><td colspan="12" style="padding:8px 14px 10px 28px">
+      <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center">
+        <span style="font-size:10px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:.8px;margin-right:4px">📊 Себест. по кат. (Метод 2):</span>
+        ${x.cogsItems.map((c,i)=>{
+          const color=TIER_COLORS[i%TIER_COLORS.length];
+          return`<span style="background:${color}18;border:1px solid ${color}44;border-radius:6px;padding:3px 9px;font-size:11px;font-weight:700;color:${color};white-space:nowrap">
+            ${c.label}: <span style="font-family:'JetBrains Mono',monospace">${c.unitCogs.toLocaleString('ru-RU')}₽</span>
+            <span style="color:${c.margin>0.5?'#22c55e':c.margin>0.2?'#eab308':'#ef4444'};margin-left:3px">${(c.margin*100).toFixed(0)}%</span>
+          </span>`;
+        }).join('')}
+      </div>
+    </td></tr>`:''}`;
+  }).join('')}
+  </tbody></table></div>`}
+</div>`;
+}
+
+// ─── GOODS / INVENTORY ───
+function rGoods(){
+  const inv=inventory().sort((a,b)=>b.date.localeCompare(a.date));
+  const latest=inv[0];
+  const totalQty=latest?latest.items.reduce((a,x)=>a+(x.qty||0),0):0;
+  const totalVal=latest?latest.items.reduce((a,x)=>a+(x.val||0),0):0;
+  const lowStock=latest?latest.items.filter(x=>x.qty>0&&x.qty<10):[];
+  return`
+<div class="page-hdr"><div><div class="page-title">Товары & Остатки</div><div class="page-sub">Учёт складских остатков по категориям</div></div>
+<div style="display:flex;gap:10px">
+  <button class="btn btn-p" onclick="oInvEvotor()" style="background:var(--surface2);border:1px solid var(--accent);color:var(--accent)">📄 Загрузить остатки из Эвотора</button>
+  <button class="btn btn-p" onclick="oAddInv()">+ Вручную</button>
+</div></div>
+
+<div class="kpi-grid">
+  <div class="kpi"><div class="kpi-lbl">Позиций на складе</div><div class="kpi-val accent">${fn(totalQty)}</div></div>
+  <div class="kpi"><div class="kpi-lbl">Оценочная стоимость</div><div class="kpi-val">${fr(totalVal)}</div></div>
+  <div class="kpi"><div class="kpi-lbl">Категорий</div><div class="kpi-val">${latest?latest.items.filter(x=>x.qty>0).length:0}</div></div>
+  <div class="kpi"><div class="kpi-lbl">Мало остатков (<10)</div><div class="kpi-val ${lowStock.length>0?'bad':''}">${lowStock.length}</div></div>
+  <div class="kpi"><div class="kpi-lbl">Дата обновления</div><div class="kpi-val" style="font-size:13px">${latest?fd(latest.date):'—'}</div></div>
+</div>
+
+${latest?`
+<div class="card" style="margin-bottom:16px">
+  <div class="card-hdr"><h3>📦 Актуальные остатки — ${fd(latest.date)}</h3><button class="btn-e" onclick="oEditInv('${latest.id}')">✏️ Редактировать</button></div>
+  <table><thead><tr><th>Категория</th><th class="r">Остаток (шт)</th><th class="r">Ср. цена</th><th class="r">Стоимость</th><th>Статус</th></tr></thead>
+  <tbody>${latest.items.sort((a,b)=>(b.qty||0)-(a.qty||0)).map(x=>{
+    const st=x.qty===0?'b-bad':x.qty<10?'b-warn':'b-ok';
+    const sl=x.qty===0?'❌ Нет':x.qty<10?'⚠️ Мало':'✅ Есть';
+    return`<tr>
+      <td style="font-weight:500">${x.cat||'—'}</td>
+      <td class="r" style="font-weight:700;color:${x.qty===0?'var(--danger)':x.qty<10?'var(--warning)':'var(--success)'}">${x.qty||0}</td>
+      <td class="r dim">${x.avgPrice?fr(x.avgPrice):'—'}</td>
+      <td class="r">${x.val?fr(x.val):'—'}</td>
+      <td><span class="badge ${st}">${sl}</span></td></tr>`;
+  }).join('')}
+  </tbody></table>
+</div>`:'<div class="card"><div class="empty">Нет данных. Загрузи остатки из Эвотора или добавь вручную.</div></div>'}
+
+${inv.length>1?`
+<div class="card">
+  <div class="card-hdr"><h3>📅 История снимков</h3></div>
+  <table><thead><tr><th>Дата</th><th class="r">Позиций</th><th class="r">Кол-во</th><th class="r">Стоимость</th><th>Примечание</th><th></th></tr></thead>
+  <tbody>${inv.map(s=>{const q=s.items.reduce((a,x)=>a+(x.qty||0),0),v=s.items.reduce((a,x)=>a+(x.val||0),0);return`<tr>
+    <td>${fd(s.date)}</td><td class="r">${s.items.filter(x=>x.qty>0).length}</td>
+    <td class="r" style="color:var(--accent)">${fn(q)}</td><td class="r">${fr(v)}</td>
+    <td class="dim" style="font-size:12px">${s.note||''}</td>
+    <td><div class="row-acts"><button class="btn-e" onclick="oEditInv('${s.id}')">✏️</button><button class="btn-d" onclick="delInv('${s.id}')">✕</button></div></td></tr>`;}).join('')}
+  </tbody></table>
+</div>`:''}`;
+}
+
+// ─── P&L ───
+function rPnL(){
+  const p=calcPnL(pnlF,pnlT);
+  const opItems=Object.entries(p.bycat).filter(([k])=>k!=='Товар/Палеты'&&k!=='Доставка'&&p.bycat[k]>0);
+  return`
+<div class="page-hdr"><div><div class="page-title">P&L — Прибыли и убытки</div><div class="page-sub">Отчёт за выбранный период</div></div></div>
+<div class="fbar">
+  <label>С:</label>
+  <input type="date" value="${pnlF}" style="width:155px" onchange="pnlF=this.value;render()">
+  <label>По:</label>
+  <input type="date" value="${pnlT}" style="width:155px" onchange="pnlT=this.value;render()">
+</div>
+<div class="pnl-blk">
+  <div class="pnl-r hd"><span>🔷 Выручка</span><span class="pnl-n" style="color:var(--accent)">${fr(p.rev)}</span></div>
+  <div class="pnl-r sub"><span>Наличные</span><span class="pnl-n">${fr(p.rn)}</span></div>
+  <div class="pnl-r sub"><span>Безналичные</span><span class="pnl-n">${fr(p.rb)}</span></div>
+</div>
+<div class="pnl-blk">
+  <div class="pnl-r hd"><span>📦 Себестоимость (Партии)</span><span class="pnl-n bad">${fr(p.cogs)}</span></div>
+  <div class="pnl-r sub"><span>Закупка товара</span><span class="pnl-n">${fr(p.cb)}</span></div>
+  <div class="pnl-r sub"><span>Доставка</span><span class="pnl-n">${fr(p.cd)}</span></div>
+</div>
+<div class="pnl-blk">
+  <div class="pnl-r tot"><span>💰 Валовая прибыль</span><span class="pnl-n ${p.gp>=0?'ok':'bad'}">${fr(p.gp)} <span style="font-size:11px;color:var(--muted)">${fp(p.gm)}</span></span></div>
+</div>
+<div class="pnl-blk">
+  <div class="pnl-r hd"><span>📋 Операционные расходы</span><span class="pnl-n bad">${fr(p.opexp)}</span></div>
+  ${opItems.length===0?'<div class="pnl-r sub"><span>Нет операционных расходов</span><span>—</span></div>':opItems.map(([k,v])=>`<div class="pnl-r sub"><span>${k}</span><span class="pnl-n">${fr(v)}</span></div>`).join('')}
+</div>
+<div class="pnl-blk">
+  <div class="pnl-r tot"><span>📊 EBITDA</span><span class="pnl-n ${p.ebitda>=0?'ok':'bad'}">${fr(p.ebitda)} <span style="font-size:11px;color:var(--muted)">${fp(p.em)}</span></span></div>
+</div>
+<div class="pnl-blk">
+  <div class="pnl-r hd"><span>🗑 Налог АУСН</span><span class="pnl-n">${fr(p.tax)}</span></div>
+</div>
+<div class="pnl-blk">
+  <div class="pnl-r tot" style="padding:16px 18px">
+    <span style="font-size:15px">✅ Чистая прибыль</span>
+    <span class="pnl-n" style="font-size:22px;color:${p.net>=0?'var(--success)':'var(--danger)'}">${fr(p.net)}</span>
+  </div>
+  <div class="pnl-r sub"><span>Чистая маржа</span><span class="pnl-n">${fp(p.nm)}</span></div>
+</div>`;
+}
+
+// ─── CASHFLOW ───
+function rCash(){
+  const bal=calcBal(),s=cfg();
+  const allD=new Set([...sales().map(x=>x.date),...exps().map(x=>x.date),...batches().map(x=>x.date)]);
+  const dates=Array.from(allD).sort();
+  let c=s.cashBalance||0,b=s.beznalBalance||0;
+  const rows=dates.map(d=>{
+    const ds=sales().filter(x=>x.date===d);
+    // Only business-funded expenses affect cash
+    const de=exps().filter(x=>x.date===d&&x.category!=='Товар/Палеты'&&x.category!=='Доставка'&&x.fundSource!=='founder');
+    // Only business-funded batches affect cash
+    const db=batches().filter(x=>x.date===d&&x.fundSource!=='founder');
+    const inc=(ds.reduce((a,x)=>a+(x.nal||0),0));
+    const inb=(ds.reduce((a,x)=>a+(x.beznal||0),0));
+    const outc=de.reduce((a,x)=>a+(x.nal||0),0)+db.filter(x=>x.payType!=='безнал').reduce((a,x)=>a+(x.cost||0)+(x.delivery||0),0);
+    const outb=de.reduce((a,x)=>a+(x.beznal||0),0)+db.filter(x=>x.payType==='безнал').reduce((a,x)=>a+(x.cost||0)+(x.delivery||0),0);
+    c+=inc-outc;b+=inb-outb;
+    return{d,inc,inb,outc,outb,c,b};
+  });
+  const founderExp=exps().filter(x=>x.fundSource==='founder'&&x.category!=='Товар/Палеты'&&x.category!=='Доставка').reduce((a,x)=>a+(x.nal||0)+(x.beznal||0),0);
+  const founderBatch=batches().filter(x=>x.fundSource==='founder').reduce((a,x)=>a+(x.cost||0)+(x.delivery||0),0);
+  const founderTotal=founderExp+founderBatch;
+  return`
+<div class="page-hdr"><div><div class="page-title">Кэш-флоу</div><div class="page-sub">Динамика движения денег бизнеса</div></div></div>
+<div class="kpi-grid" style="max-width:560px">
+  <div class="kpi"><div class="kpi-lbl">Текущий НАЛ</div><div class="kpi-val ${bal.c>=0?'ok':'bad'}">${fr(bal.c)}</div></div>
+  <div class="kpi"><div class="kpi-lbl">Текущий БЕЗНАЛ</div><div class="kpi-val ${bal.b>=0?'ok':'bad'}">${fr(bal.b)}</div></div>
+  ${founderTotal>0?`<div class="kpi" style="border-color:rgba(168,85,247,.4)"><div class="kpi-lbl">🙋 Вложено основателем (не в кассе)</div><div class="kpi-val" style="color:#a855f7">${fr(founderTotal)}</div></div>`:''}
+</div>
+${founderTotal>0?`<div style="background:rgba(168,85,247,.06);border:1px solid rgba(168,85,247,.3);border-radius:10px;padding:12px 18px;margin-bottom:16px;font-size:12px;color:var(--muted)">
+  <b style="color:#a855f7">Расходы основателя (${fr(founderTotal)})</b> не уменьшают кассу бизнеса — они оплачены из личных средств и не отражены в кэш-флоу ниже, но учтены в P&L.
+</div>`:''}
+<div class="card">
+  <div class="card-hdr"><h3>Движение по дням (только деньги бизнеса)</h3></div>
+  ${rows.length===0?'<div class="empty">Нет данных</div>':`
+  <div class="tbl-wrap"><table><thead><tr><th>Дата</th><th class="r">Приход НАЛ</th><th class="r">Расход НАЛ</th><th class="r">Остаток НАЛ</th><th class="r">Приход БЕЗНАЛ</th><th class="r">Расход БЕЗНАЛ</th><th class="r">Остаток БЕЗНАЛ</th></tr></thead>
+  <tbody>${rows.reverse().map(r=>`<tr>
+    <td>${fd(r.d)}</td>
+    <td class="r ok">${r.inc?fr(r.inc):'—'}</td><td class="r bad">${r.outc?fr(r.outc):'—'}</td>
+    <td class="r ${r.c>=0?'':'bad'}" style="font-weight:600">${fr(r.c)}</td>
+    <td class="r ok">${r.inb?fr(r.inb):'—'}</td><td class="r bad">${r.outb?fr(r.outb):'—'}</td>
+    <td class="r ${r.b>=0?'':'bad'}" style="font-weight:600">${fr(r.b)}</td></tr>`).join('')}
+  </tbody></table></div>`}
+</div>`;
+}
+
+// ─── DYNAMICS ───
+function rDyn(){
+  const mm=calcDyn().reverse();
+  return`
+<div class="page-hdr"><div><div class="page-title">Динамика по месяцам</div><div class="page-sub">Сводка автоматически из всех разделов</div></div></div>
+<div class="card">
+  ${mm.length===0?'<div class="empty">Данных пока нет</div>':`
+  <table><thead><tr><th>Месяц</th><th class="r">Выручка</th><th class="r">Расходы</th><th class="r">Себест.</th><th class="r">Вал. прибыль</th><th class="r">Налог</th><th class="r">Чистая прибыль</th><th class="r">Штук</th><th class="r">Ср. цена/шт</th></tr></thead>
+  <tbody>${mm.map(m=>`<tr>
+    <td style="font-weight:600">${ml(m.ym)}</td>
+    <td class="r" style="color:var(--accent)">${fr(m.rev)}</td>
+    <td class="r bad">${fr(m.exp)}</td><td class="r dim">${fr(m.cogs)}</td>
+    <td class="r ${m.gp>=0?'ok':'bad'}">${fr(m.gp)}</td>
+    <td class="r dim">${fr(m.tax)}</td>
+    <td class="r" style="font-weight:700;color:${m.net>=0?'var(--success)':'var(--danger)'}">${fr(m.net)}</td>
+    <td class="r dim">${fn(m.items||m.chk)}</td>
+    <td class="r">${m.avg?fr(m.avg):'—'}</td></tr>`).join('')}
+  </tbody></table>`}
+</div>`;
+}
+
+// ─── PLAN vs FACT ───
+function rPF(){
+  const pp=plans(),dyn=calcDyn(),s=cfg();
+  const start=new Date(s.startDate||'2026-03-01');
+  const ms12=[];
+  for(let i=0;i<12;i++){const d=new Date(start.getFullYear(),start.getMonth()+i,1);ms12.push(d.toISOString().slice(0,7))}
+  return`
+<div class="page-hdr"><div><div class="page-title">План vs Факт</div><div class="page-sub">Введи план — факт считается автоматически</div></div>
+<button class="btn btn-p" onclick="oEditPlan()">✏️ Редактировать план</button></div>
+<div class="card">
+  <table><thead><tr><th>Месяц</th><th class="r">План выручки</th><th class="r">Факт выручки</th><th class="r">Выполнение</th><th class="r">Отклонение</th><th class="r">План расходов</th><th class="r">Факт расходов</th><th>Статус</th></tr></thead>
+  <tbody>${ms12.map(ym=>{
+    const pl=pp.find(x=>x.ym===ym)||{planRevenue:0,planExpenses:0};
+    const fc=dyn.find(x=>x.ym===ym)||{rev:0,exp:0};
+    const pct=pl.planRevenue>0?fc.rev/pl.planRevenue:null;
+    const diff=fc.rev-pl.planRevenue;
+    let st='—',sc='b-dim';
+    if(pct!==null){if(pct>=1){st='✅ Выполнен';sc='b-ok'}else if(pct>=0.8){st='⚠️ Почти';sc='b-warn'}else if(fc.rev>0){st='❌ Провал';sc='b-bad'}}
+    return`<tr>
+      <td style="font-weight:500">${ml(ym)}</td>
+      <td class="r">${pl.planRevenue?fr(pl.planRevenue):'—'}</td>
+      <td class="r" style="color:var(--accent)">${fc.rev?fr(fc.rev):'—'}</td>
+      <td class="r">${pct!==null?fp(pct):'—'}</td>
+      <td class="r ${diff>=0?'ok':'bad'}">${pl.planRevenue?fr(diff):'—'}</td>
+      <td class="r">${pl.planExpenses?fr(pl.planExpenses):'—'}</td>
+      <td class="r bad">${fc.exp?fr(fc.exp):'—'}</td>
+      <td><span class="badge ${sc}">${st}</span></td></tr>`;
+  }).join('')}
+  </tbody></table>
+</div>`;
+}
+
+// ─── SETTINGS ───
+function rSet(){
+  const s=cfg();
+  const cats=priceCats();
+  const bal=calcBal();
+  return`
+<div class="page-hdr"><div><div class="page-title">Настройки</div><div class="page-sub">Заполни первым — остальные разделы берут данные отсюда</div></div></div>
+
+<!-- БЛОК А: МАГАЗИН -->
+<div style="font-size:11px;font-weight:700;color:var(--muted);letter-spacing:1px;margin-bottom:10px;text-transform:uppercase">🏪 Основное</div>
+<div class="card" style="max-width:560px;padding:22px;margin-bottom:24px">
+  <div class="fg c1" style="gap:16px">
+    <div class="fgrp"><label>Название магазина</label><input type="text" id="s-name" value="${s.storeName||''}"></div>
+    <div class="fgrp"><label>Ставка налога АУСН (%)</label><input type="number" id="s-tax" value="${((s.taxRate||0.08)*100).toFixed(0)}" min="0" max="100" step="0.1"></div>
+    <div class="fgrp"><label>Дата начала учёта</label><input type="date" id="s-start" value="${s.startDate||''}"></div>
+  </div>
+</div>
+
+<!-- БЛОК Б: ИНВЕСТИЦИИ ОСНОВАТЕЛЯ -->
+<div style="font-size:11px;font-weight:700;color:var(--muted);letter-spacing:1px;margin-bottom:10px;text-transform:uppercase">🙋 Инвестиции основателя (для расчёта окупаемости)</div>
+<div style="background:rgba(168,85,247,.06);border:1px solid rgba(168,85,247,.3);border-radius:12px;padding:16px 20px;max-width:560px;margin-bottom:8px">
+  <div style="font-size:12px;color:var(--muted);line-height:1.8;margin-bottom:14px">
+    <b style="color:#a855f7">Сколько ты вложил в бизнес всего</b> — эта цифра используется только для расчёта окупаемости в разделе «Планирование».<br>
+    <span style="color:var(--warning)">⚠️ Это НЕ влияет на кассу и кэш-флоу.</span>
+  </div>
+  <div class="fg" style="max-width:460px">
+    <div class="fgrp"><label>Всего вложено основателем (₽)</label><input type="number" id="s-founder" value="${s.founderInvestment||0}" step="1" placeholder="например 436700"></div>
+  </div>
+</div>
+
+<!-- БЛОК В: ОСТАТКИ НА СТАРТ -->
+<div style="font-size:11px;font-weight:700;color:var(--muted);letter-spacing:1px;margin:24px 0 10px;text-transform:uppercase">💵 Стартовые остатки на дату начала учёта</div>
+<div style="background:rgba(249,115,22,.06);border:2px solid rgba(249,115,22,.4);border-radius:12px;padding:16px 20px;max-width:560px;margin-bottom:8px">
+  <div style="font-size:12px;line-height:1.8;margin-bottom:14px">
+    <b style="color:var(--accent)">Это не вложения — это сколько физически было в кассе и на расчётном счёте</b> именно на дату начала учёта (${s.startDate||'...'}).<br>
+    <div style="margin-top:6px;display:grid;grid-template-columns:auto 1fr;gap:6px 12px;font-size:11px;color:var(--muted)">
+      <span style="color:var(--success)">✅ Верно:</span><span>«На 23.03 в кассе лежало 5 000 ₽, на счёте — 0 ₽»</span>
+      <span style="color:var(--danger)">❌ Неверно:</span><span>«Я вложил 436 700 ₽ в бизнес» — это не остаток, это инвестиции (поле выше)</span>
+    </div>
+    <div style="margin-top:8px;padding:10px 14px;background:rgba(249,115,22,.08);border-radius:8px;font-size:11px;color:var(--text)">
+      💡 <b>Как посчитать правильно:</b> Вложено (${fr(s.founderInvestment||0)}) − уже потрачено до начала учёта = реальный остаток.<br>
+      Если до 23.03 ты уже купил партию, оплатил депозит за аренду и т.д. — всё это уже «вышло» из стартовой суммы.
+    </div>
+  </div>
+  <div class="fg" style="max-width:460px">
+    <div class="fgrp"><label>Остаток НАЛИЧКА на старте (₽)</label><input type="number" id="s-cash" value="${s.cashBalance||0}" step="1"></div>
+    <div class="fgrp"><label>Остаток БЕЗНАЛ на старте (₽)</label><input type="number" id="s-beznal" value="${s.beznalBalance||0}" step="1"></div>
+  </div>
+  <div style="margin-top:12px;padding:10px 14px;background:var(--surface2);border-radius:8px;font-size:12px;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+    <span style="color:var(--muted)">Текущий расчётный остаток после всех операций:</span>
+    <span style="font-family:'JetBrains Mono',monospace;font-weight:700">
+      <span style="color:${bal.c>=0?'var(--success)':'var(--danger)'}">НАЛ ${fr(bal.c)}</span>
+      <span style="color:var(--muted);margin:0 8px">·</span>
+      <span style="color:${bal.b>=0?'var(--success)':'var(--danger)'}">БЕЗНАЛ ${fr(bal.b)}</span>
+    </span>
+  </div>
+</div>
+
+<div style="margin-top:16px;max-width:560px">
+  <button class="btn btn-p" onclick="saveCfg()">💾 Сохранить все настройки</button>
+</div>
+
+<!-- БЛОК Г: ЦЕНОВЫЕ КАТЕГОРИИ -->
+<div style="margin-top:28px;max-width:580px">
+  <div style="font-size:11px;font-weight:700;color:var(--muted);letter-spacing:1px;margin-bottom:10px;text-transform:uppercase">🏷️ Ценовые категории товара</div>
+  <div class="card" style="padding:18px">
+    <div style="font-size:12px;color:var(--muted);margin-bottom:14px">Настрой категории под свой прайс. Название + цена за единицу. Используются в разделе Продажи.</div>
+    <div style="display:grid;grid-template-columns:80px 1fr 120px 36px;gap:8px;align-items:center;padding:6px 0;border-bottom:1px solid var(--border);margin-bottom:8px">
+      <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase">Ключ</div>
+      <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase">Название</div>
+      <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase">Цена (₽)</div>
+      <div></div>
+    </div>
+    <div id="pc-rows">
+      ${cats.map((c,i)=>`<div class="pc-row" style="display:grid;grid-template-columns:80px 1fr 120px 36px;gap:8px;align-items:center;margin-bottom:6px">
+        <input type="text" class="pc-key" value="${c.key}" placeholder="ключ" style="padding:6px 8px;font-size:12px;font-family:'JetBrains Mono',monospace">
+        <input type="text" class="pc-label" value="${c.label}" placeholder="название" style="padding:6px 8px;font-size:13px;color:${TIER_COLORS[i%TIER_COLORS.length]}">
+        <input type="number" class="pc-price" value="${c.price}" min="0" placeholder="цена" style="padding:6px 8px;font-size:13px">
+        <button onclick="this.closest('.pc-row').remove()" style="background:rgba(239,68,68,.15);border:none;color:var(--danger);border-radius:6px;padding:6px 8px;cursor:pointer;font-size:13px">✕</button>
+      </div>`).join('')}
+    </div>
+    <div style="display:flex;gap:10px;margin-top:10px;flex-wrap:wrap">
+      <button class="btn btn-g btn-sm" onclick="addPcRow()">+ Добавить категорию</button>
+      <button class="btn btn-g btn-sm" onclick="resetPcRows()" style="color:var(--muted)">↺ Сброс к умолчанию</button>
+      <button class="btn btn-p btn-sm" onclick="savePriceCats()">💾 Сохранить категории</button>
+    </div>
+  </div>
+</div>
+
+<!-- БЛОК Д: GITHUB GIST -->
+<div style="margin-top:28px;max-width:580px">
+  <div style="font-size:11px;font-weight:700;color:var(--muted);letter-spacing:1px;margin-bottom:10px;text-transform:uppercase">🔗 GitHub Gist — публикация для партнёров</div>
+  <div style="background:rgba(168,85,247,.06);border:1px solid rgba(168,85,247,.3);border-radius:12px;padding:18px 20px">
+    <div style="font-size:12px;color:var(--muted);line-height:1.8;margin-bottom:16px">
+      Нажми «Опубликовать» на дашборде → данные уйдут в GitHub Gist → партнёры открывают постоянную ссылку и видят актуальные данные в режиме просмотра.<br>
+      <b style="color:var(--text)">Токен нужен один раз.</b> Храни его в тайне — он даёт доступ к твоим Gist-ам.
+    </div>
+    <div style="display:flex;flex-direction:column;gap:12px">
+      <div class="fgrp">
+        <label>GitHub Personal Access Token</label>
+        <input type="password" id="s-gh-token" value="${s.githubToken||''}" placeholder="ghp_xxxxxxxxxxxxxxxxxxxx"
+          style="font-family:'JetBrains Mono',monospace;font-size:12px">
+      </div>
+      ${s.gistId?`<div style="padding:10px 14px;background:var(--surface2);border-radius:8px;font-size:12px">
+        <span style="color:var(--muted)">Текущий Gist ID: </span>
+        <span style="font-family:'JetBrains Mono',monospace;color:#a855f7">${s.gistId}</span>
+        <button onclick="if(confirm('Сбросить Gist ID? Следующая публикация создаст новый Gist и новую ссылку.')){{const c=cfg();delete c.gistId;save(K.settings,c);render();}}" style="margin-left:10px;background:none;border:none;color:var(--danger);cursor:pointer;font-size:11px">✕ Сбросить</button>
+      </div>`:''}
+      <div style="background:var(--surface2);border-radius:8px;padding:12px 14px;font-size:12px;line-height:1.8;color:var(--muted)">
+        <b style="color:var(--text)">Как получить токен (2 минуты):</b><br>
+        1. Открой <a href="https://github.com/settings/tokens/new" target="_blank" style="color:#a855f7">github.com/settings/tokens/new</a><br>
+        2. Note: <code style="background:var(--border);padding:1px 5px;border-radius:3px">nakhodka</code><br>
+        3. Expiration: <code style="background:var(--border);padding:1px 5px;border-radius:3px">No expiration</code><br>
+        4. Отметь галку <code style="background:var(--border);padding:1px 5px;border-radius:3px">✅ gist</code><br>
+        5. Нажми «Generate token» → скопируй → вставь выше
+      </div>
+      <button class="btn btn-p btn-sm" onclick="saveGistToken()" style="align-self:flex-start;background:rgba(168,85,247,.2);border:1px solid #a855f7;color:#a855f7">💾 Сохранить токен</button>
+    </div>
+  </div>
+</div>
+
+<!-- БЛОК Е: БЭКАП -->
+<div style="margin-top:24px;max-width:540px">
+  <div style="font-size:11px;font-weight:700;color:var(--muted);letter-spacing:1px;margin-bottom:10px;text-transform:uppercase">🗄 Резервное копирование</div>
+  <div style="display:flex;gap:10px;flex-wrap:wrap">
+    <button class="btn btn-g" onclick="expData()">📤 Экспорт JSON</button>
+    <button class="btn btn-g" onclick="document.getElementById('imp-f').click()">📥 Импорт JSON</button>
+    <input type="file" id="imp-f" accept=".json" style="display:none" onchange="impData(this)">
+    <button class="btn btn-g" style="color:var(--danger);border-color:var(--danger)" onclick="clearAll()">🗑 Очистить все данные</button>
+  </div>
+</div>`;
+}
+
+// ═══ PRICE TIER FORM HELPER ═══
+function tierFormHtml(pc){
+  const cats=priceCats();
+  return`<div style="border:1px solid var(--border);border-radius:8px;overflow:hidden;margin-top:4px">
+    <div style="background:var(--surface2);padding:9px 14px;display:grid;grid-template-columns:1fr 90px 110px;gap:8px">
+      <div style="font-size:10px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:.8px">Ценовая категория</div>
+      <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.8px;text-align:right">Цена</div>
+      <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.8px;text-align:center">Кол-во (шт)</div>
+    </div>
+    ${cats.map((t,i)=>{
+      const qty=pc&&pc[t.key]?pc[t.key].qty:0;
+      return`<div style="display:grid;grid-template-columns:1fr 90px 110px;gap:8px;align-items:center;padding:7px 14px;border-top:1px solid rgba(255,255,255,.04)">
+        <div style="font-size:13px;font-weight:700;color:${TIER_COLORS[i%TIER_COLORS.length]}">${t.label}</div>
+        <div style="font-size:13px;font-family:'JetBrains Mono',monospace;color:var(--muted);text-align:right">${t.price.toLocaleString('ru-RU')} ₽</div>
+        <div><input type="number" class="tier-qty" data-key="${t.key}" data-price="${t.price}" placeholder="0" min="0" value="${qty||''}" style="padding:6px 10px;font-size:13px;text-align:center;width:100%"></div>
+      </div>`;
+    }).join('')}
+    <div id="tier-total-row" style="display:flex;justify-content:space-between;align-items:center;padding:9px 14px;border-top:1px solid var(--border);background:var(--surface2)">
+      <span style="font-size:12px;font-weight:700;color:var(--muted)">ИТОГО ШТ / СУММА</span>
+      <span id="tier-total" style="font-family:'JetBrains Mono',monospace;font-size:13px;font-weight:700;color:var(--accent)">0 шт · 0 ₽</span>
+    </div>
+  </div>`;
+}
+function attachTierListeners(){
+  document.querySelectorAll('.tier-qty').forEach(el=>{
+    el.addEventListener('input',updateTierTotal);
+  });
+  updateTierTotal();
+}
+function updateTierTotal(){
+  let qty=0,rev=0;
+  document.querySelectorAll('.tier-qty').forEach(el=>{
+    const q=+el.value||0,p=+el.dataset.price||0;
+    qty+=q;rev+=q*p;
+  });
+  const el=document.getElementById('tier-total');
+  if(el)el.textContent=`${qty} шт · ${Math.round(rev).toLocaleString('ru-RU')} ₽`;
+}
+function readTiers(){
+  const pc={};
+  document.querySelectorAll('.tier-qty').forEach(el=>{
+    const k=el.dataset.key,qty=+el.value||0,price=+el.dataset.price||0;
+    if(qty>0)pc[k]={qty,rev:qty*price,price};
+  });
+  return Object.keys(pc).length>0?pc:null;
+}
+
+// ═══ FUND SOURCE HELPER ═══
+const FUND_LABELS={'business':'💼 Оборотный капитал','founder':'🙋 Вложения основателя'};
+function fundSourceSelect(val){
+  const v=val||'business';
+  return`<div class="fgrp full">
+  <label>Источник финансирования</label>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:2px">
+    <label id="fs-b" style="display:flex;align-items:center;gap:8px;padding:9px 14px;border-radius:8px;cursor:pointer;border:2px solid ${v==='business'?'var(--accent)':'var(--border)'};background:${v==='business'?'var(--accent-dim)':'var(--surface2)'};font-size:12px;font-weight:600;color:${v==='business'?'var(--accent)':'var(--muted)'};text-transform:none;letter-spacing:0">
+      <input type="radio" name="fundSource" value="business" ${v==='business'?'checked':''} style="display:none" onchange="updateFsStyle()">
+      💼 Оборотный капитал
+    </label>
+    <label id="fs-f" style="display:flex;align-items:center;gap:8px;padding:9px 14px;border-radius:8px;cursor:pointer;border:2px solid ${v==='founder'?'#a855f7':'var(--border)'};background:${v==='founder'?'rgba(168,85,247,.1)':'var(--surface2)'};font-size:12px;font-weight:600;color:${v==='founder'?'#a855f7':'var(--muted)'};text-transform:none;letter-spacing:0">
+      <input type="radio" name="fundSource" value="founder" ${v==='founder'?'checked':''} style="display:none" onchange="updateFsStyle()">
+      🙋 Вложения основателя
+    </label>
+  </div>
+  <div id="fs-hint" style="font-size:11px;color:var(--muted);margin-top:5px;line-height:1.5">
+    ${v==='founder'?'<span style="color:#a855f7">Оплачено из личных денег основателя — не уменьшает кассу бизнеса, но учитывается в расходах P&L</span>':'Оплачено из денег бизнеса — уменьшает кассу и учитывается в расходах'}
+  </div>
+</div>`;
+}
+function updateFsStyle(){
+  const isBusiness=document.querySelector('input[name="fundSource"]:checked')?.value==='business';
+  const lb=document.getElementById('fs-b'),lf=document.getElementById('fs-f'),hint=document.getElementById('fs-hint');
+  if(lb){lb.style.borderColor=isBusiness?'var(--accent)':'var(--border)';lb.style.background=isBusiness?'var(--accent-dim)':'var(--surface2)';lb.style.color=isBusiness?'var(--accent)':'var(--muted)';}
+  if(lf){lf.style.borderColor=!isBusiness?'#a855f7':'var(--border)';lf.style.background=!isBusiness?'rgba(168,85,247,.1)':'var(--surface2)';lf.style.color=!isBusiness?'#a855f7':'var(--muted)';}
+  if(hint)hint.innerHTML=isBusiness?'Оплачено из денег бизнеса — уменьшает кассу и учитывается в расходах':'<span style="color:#a855f7">Оплачено из личных денег основателя — не уменьшает кассу бизнеса, но учитывается в расходах P&L</span>';
+}
+function readFundSource(){return document.querySelector('input[name="fundSource"]:checked')?.value||'business';}
+
+// ═══ COGS METHOD 2 CALCULATOR ═══
+// Метод 2: распределение себестоимости пропорционально продажной цене
+// Логика: дорогие вещи «стоят» больше из палеты. Если ты купил 10 футболок по 149₽ и 5 пальто по 1999₽,
+// то пальто заберут ~87% себестоимости палеты, а футболки ~13%.
+// unitCost_i = (qty_i × sellPrice_i) / Σ(qty_j × sellPrice_j) × totalBatchCost / qty_i
+function cogsMethod2(items, totalCost){
+  const weightSum=items.reduce((a,x)=>a+(x.qty||0)*(x.price||0),0);
+  if(weightSum===0)return items.map(x=>({...x,unitCogs:0,totalCogs:0,margin:0}));
+  return items.map(x=>{
+    const weight=(x.qty||0)*(x.price||0);
+    const totalCogs=Math.round((weight/weightSum)*totalCost);
+    const unitCogs=x.qty>0?Math.round(totalCogs/x.qty):0;
+    const margin=x.price>0?((x.price-unitCogs)/x.price):0;
+    return{...x,unitCogs,totalCogs,margin};
+  });
+}
+
+function cogsFormHtml(cogsItems){
+  const cats=priceCats();
+  const existing={};
+  if(cogsItems)cogsItems.forEach(x=>{existing[x.key]=x;});
+  return`<div style="border:1px solid var(--border);border-radius:10px;overflow:hidden;margin-top:4px">
+  <div style="background:var(--surface2);padding:10px 16px;display:flex;justify-content:space-between;align-items:center">
+    <div>
+      <div style="font-size:12px;font-weight:700;color:var(--accent)">📊 Себестоимость по категориям — Метод 2</div>
+      <div style="font-size:10px;color:var(--muted);margin-top:2px">Распределение пропорционально продажной цене · введи кол-во по категориям</div>
+    </div>
+    <span id="cogs-total" style="font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:700;color:var(--accent)"></span>
+  </div>
+  <div style="display:grid;grid-template-columns:100px 1fr 90px 90px 90px;gap:0;background:var(--surface2);border-top:1px solid var(--border);padding:7px 14px">
+    <div style="font-size:9px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.8px">Категория</div>
+    <div style="font-size:9px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.8px">Цена продажи</div>
+    <div style="font-size:9px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.8px;text-align:center">Штук в партии</div>
+    <div style="font-size:9px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.8px;text-align:right">Себест./шт</div>
+    <div style="font-size:9px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.8px;text-align:right">Маржа</div>
+  </div>
+  ${cats.map((t,i)=>`
+  <div class="cogs-row" style="display:grid;grid-template-columns:100px 1fr 90px 90px 90px;align-items:center;padding:8px 14px;border-top:1px solid rgba(255,255,255,.04)">
+    <div style="font-size:13px;font-weight:700;color:${TIER_COLORS[i%TIER_COLORS.length]}">${t.label}</div>
+    <div style="font-size:12px;font-family:'JetBrains Mono',monospace;color:var(--muted)">${t.price.toLocaleString('ru-RU')} ₽</div>
+    <div><input type="number" class="cogs-qty" data-key="${t.key}" data-price="${t.price}" data-label="${t.label}"
+      placeholder="0" min="0" value="${existing[t.key]?existing[t.key].qty:''}"
+      style="width:100%;padding:6px 8px;font-size:13px;text-align:center;background:var(--surface2);border:1px solid var(--border);border-radius:7px;color:var(--text);font-family:'Montserrat',sans-serif;outline:none"
+      oninput="updateCogsCalc()"></div>
+    <div id="cogs-unit-${t.key}" style="font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:600;text-align:right;color:var(--muted)">—</div>
+    <div id="cogs-margin-${t.key}" style="font-size:11px;text-align:right;color:var(--muted)">—</div>
+  </div>`).join('')}
+  <div style="padding:10px 16px;border-top:1px solid var(--border);background:var(--surface2);display:grid;grid-template-columns:100px 1fr 90px 90px 90px;align-items:center">
+    <div style="font-size:11px;font-weight:700;color:var(--muted);grid-column:1/3">ИТОГО</div>
+    <div id="cogs-total-qty" style="font-family:'JetBrains Mono',monospace;font-size:13px;font-weight:700;color:var(--text);text-align:center">0 шт</div>
+    <div id="cogs-total-cost" style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--accent);text-align:right">—</div>
+    <div id="cogs-avg-margin" style="font-size:11px;font-weight:700;text-align:right;color:var(--muted)">—</div>
+  </div>
+</div>`;
+}
+
+function updateCogsCalc(){
+  const costEl=document.getElementById('fcost'),delEl=document.getElementById('fdel');
+  const totalCost=(+costEl?.value||0)+(+delEl?.value||0);
+  const cats=priceCats();
+  const items=[];
+  document.querySelectorAll('.cogs-qty').forEach(el=>{
+    const qty=+el.value||0;
+    if(qty>0)items.push({key:el.dataset.key,price:+el.dataset.price,label:el.dataset.label,qty});
+  });
+  const result=cogsMethod2(items,totalCost);
+  let totalQty=0,totalCogsSum=0,weightedMarginSum=0;
+  result.forEach(x=>{
+    const uEl=document.getElementById('cogs-unit-'+x.key);
+    const mEl=document.getElementById('cogs-margin-'+x.key);
+    if(uEl)uEl.textContent=x.unitCogs?x.unitCogs.toLocaleString('ru-RU')+' ₽':'—';
+    if(uEl)uEl.style.color=x.unitCogs?'var(--text)':'var(--muted)';
+    if(mEl){
+      const mp=(x.margin*100).toFixed(0)+'%';
+      mEl.textContent=x.qty?mp:'—';
+      mEl.style.color=x.margin>0.5?'var(--success)':x.margin>0.2?'var(--warning)':'var(--danger)';
+    }
+    totalQty+=x.qty;totalCogsSum+=x.totalCogs;
+    weightedMarginSum+=x.qty*(x.margin||0);
+  });
+  const tqEl=document.getElementById('cogs-total-qty'),tcEl=document.getElementById('cogs-total-cost'),amEl=document.getElementById('cogs-avg-margin');
+  if(tqEl)tqEl.textContent=totalQty+' шт';
+  if(tcEl)tcEl.textContent=totalCogsSum?totalCogsSum.toLocaleString('ru-RU')+' ₽':'—';
+  if(amEl){const avgM=totalQty>0?(weightedMarginSum/totalQty*100).toFixed(0)+'%':'—';amEl.textContent=avgM;amEl.style.color=totalQty>0&&(weightedMarginSum/totalQty)>0.5?'var(--success)':'var(--warning)';}
+}
+
+function readCogsItems(){
+  const costEl=document.getElementById('fcost'),delEl=document.getElementById('fdel');
+  const totalCost=(+costEl?.value||0)+(+delEl?.value||0);
+  const cats=priceCats();
+  const items=[];
+  document.querySelectorAll('.cogs-qty').forEach(el=>{
+    const qty=+el.value||0;
+    if(qty>0)items.push({key:el.dataset.key,price:+el.dataset.price,label:el.dataset.label,qty});
+  });
+  if(items.length===0||totalCost===0)return null;
+  return cogsMethod2(items,totalCost);
+}
+function oEditSale(id){
+  const x=sales().find(s=>s.id===id);if(!x)return;
+  showM(`
+<div class="m-hdr"><h2>✏️ Редактировать продажу</h2><button class="m-x" onclick="hideM()">×</button></div>
+<div class="fg">
+  <div class="fgrp full"><label>Дата</label><input type="date" id="fd" value="${x.date}"></div>
+  <div class="fgrp"><label>НАЛ (₽)</label><input type="number" id="fn" value="${x.nal||0}" min="0"></div>
+  <div class="fgrp"><label>БЕЗНАЛ (₽)</label><input type="number" id="fb" value="${x.beznal||0}" min="0"></div>
+  <div class="fgrp"><label>Чеки НАЛ (шт)</label><input type="number" id="fnc" value="${x.nalChecks||0}" min="0"></div>
+  <div class="fgrp"><label>Чеки БЕЗНАЛ (шт)</label><input type="number" id="fbc" value="${x.beznalChecks||0}" min="0"></div>
+  <div class="fgrp full"><label>Примечание</label><input type="text" id="fnote" value="${x.note||''}"></div>
+  <div class="fgrp full">${tierFormHtml(x.priceCats)}</div>
+</div>
+<div class="m-foot"><button class="btn btn-g" onclick="hideM()">Отмена</button><button class="btn btn-p" onclick="svEditSale('${id}')">💾 Сохранить</button></div>`)
+}
+function svEditSale(id){
+  const d=document.getElementById('fd').value;if(!d){alert('Укажите дату');return}
+  const ss=sales().map(x=>x.id===id?{...x,date:d,nal:+document.getElementById('fn').value||0,
+    beznal:+document.getElementById('fb').value||0,nalChecks:+document.getElementById('fnc').value||0,
+    beznalChecks:+document.getElementById('fbc').value||0,note:document.getElementById('fnote').value,
+    priceCats:readTiers()}:x);
+  save(K.sales,ss);hideM();render();
+}
+
+function oEditExp(id){
+  const x=exps().find(e=>e.id===id);if(!x)return;
+  showM(`
+<div class="m-hdr"><h2>✏️ Редактировать расход</h2><button class="m-x" onclick="hideM()">×</button></div>
+<div class="fg">
+  <div class="fgrp full"><label>Дата</label><input type="date" id="fd" value="${x.date}"></div>
+  <div class="fgrp full"><label>Описание</label><input type="text" id="fdesc" value="${x.description||''}"></div>
+  <div class="fgrp full"><label>Категория</label><select id="fcat">${CATS.map(c=>`<option${c===x.category?' selected':''}>${c}</option>`).join('')}</select></div>
+  <div class="fgrp"><label>НАЛ (₽)</label><input type="number" id="fn" value="${x.nal||0}" min="0"></div>
+  <div class="fgrp"><label>БЕЗНАЛ (₽)</label><input type="number" id="fb" value="${x.beznal||0}" min="0"></div>
+  ${fundSourceSelect(x.fundSource||'business')}
+  <div class="fgrp full"><label>Примечание</label><input type="text" id="fnote" value="${x.note||''}"></div>
+</div>
+<div class="m-foot"><button class="btn btn-g" onclick="hideM()">Отмена</button><button class="btn btn-p" onclick="svEditExp('${id}')">💾 Сохранить</button></div>`)
+}
+function svEditExp(id){
+  const d=document.getElementById('fd').value;if(!d){alert('Укажите дату');return}
+  const ee=exps().map(x=>x.id===id?{...x,date:d,description:document.getElementById('fdesc').value,
+    category:document.getElementById('fcat').value,nal:+document.getElementById('fn').value||0,
+    beznal:+document.getElementById('fb').value||0,note:document.getElementById('fnote').value,
+    fundSource:readFundSource()}:x);
+  save(K.expenses,ee);hideM();render();
+}
+
+function oEditBatch(id){
+  const x=batches().find(b=>b.id===id);if(!x)return;
+  showM(`
+<div class="m-hdr"><h2>✏️ Редактировать партию</h2><button class="m-x" onclick="hideM()">×</button></div>
+<div class="fg">
+  <div class="fgrp"><label>Дата</label><input type="date" id="fd" value="${x.date}"></div>
+  <div class="fgrp"><label>№ Партии</label><input type="text" id="fnum" value="${x.batchNum||''}"></div>
+  <div class="fgrp full"><label>Тип палеты</label><input type="text" id="ftype" value="${x.paletType||''}"></div>
+  <div class="fgrp"><label>Палет (шт)</label><input type="number" id="fpal" value="${x.paletCount||0}" min="0"></div>
+  <div class="fgrp"><label>Стоимость (₽)</label><input type="number" id="fcost" value="${x.cost||0}" min="0" oninput="updateCogsCalc()"></div>
+  <div class="fgrp"><label>Доставка (₽)</label><input type="number" id="fdel" value="${x.delivery||0}" min="0" oninput="updateCogsCalc()"></div>
+  <div class="fgrp"><label>Единиц товара (шт)</label><input type="number" id="funits" value="${x.units||0}" min="0"></div>
+  <div class="fgrp"><label>Оплата</label><select id="fpay"><option value="нал"${x.payType!=='безнал'?' selected':''}>Наличные</option><option value="безнал"${x.payType==='безнал'?' selected':''}>Безналичные</option></select></div>
+  ${fundSourceSelect(x.fundSource||'business')}
+  <div class="fgrp full"><label>Примечание</label><input type="text" id="fnote" value="${x.note||''}"></div>
+  <div class="fgrp full">${cogsFormHtml(x.cogsItems||null)}</div>
+</div>
+<div class="m-foot"><button class="btn btn-g" onclick="hideM()">Отмена</button><button class="btn btn-p" onclick="svEditBatch('${id}')">💾 Сохранить</button></div>`)
+  setTimeout(updateCogsCalc,50);
+}
+function svEditBatch(id){
+  const d=document.getElementById('fd').value;if(!d){alert('Укажите дату');return}
+  const bb=batches().map(x=>x.id===id?{...x,date:d,batchNum:document.getElementById('fnum').value,
+    paletType:document.getElementById('ftype').value,paletCount:+document.getElementById('fpal').value||0,
+    cost:+document.getElementById('fcost').value||0,delivery:+document.getElementById('fdel').value||0,
+    units:+document.getElementById('funits').value||0,payType:document.getElementById('fpay').value,
+    note:document.getElementById('fnote').value,fundSource:readFundSource(),
+    cogsItems:readCogsItems()}:x);
+  save(K.batches,bb);hideM();render();
+}
+
+// ═══ INVENTORY FORMS ═══
+function invFormRows(items){
+  const cats=GOCAT;
+  return cats.map(cat=>{
+    const ex=items?items.find(i=>i.cat===cat):null;
+    return`<div style="display:grid;grid-template-columns:160px 80px 90px 110px;gap:8px;align-items:center;padding:6px 0;border-bottom:1px solid rgba(255,255,255,.04)">
+      <div style="font-size:12px;font-weight:600">${cat}</div>
+      <input type="number" class="inv-qty" data-cat="${cat.replace(/'/g,"\\'")}" placeholder="шт" min="0" value="${ex?ex.qty:''}" style="padding:5px 8px;font-size:12px">
+      <input type="number" class="inv-avg" data-cat="${cat.replace(/'/g,"\\'")}" placeholder="ср.цена" min="0" value="${ex?ex.avgPrice:''}" style="padding:5px 8px;font-size:12px">
+      <input type="number" class="inv-val" data-cat="${cat.replace(/'/g,"\\'")}" placeholder="сумма ₽" min="0" value="${ex?ex.val:''}" style="padding:5px 8px;font-size:12px">
+    </div>`;}).join('');
+}
+function readInvRows(){
+  const items=[];
+  document.querySelectorAll('.inv-qty').forEach(el=>{
+    const cat=el.dataset.cat,qty=+el.value||0;
+    const avg=+(document.querySelector(`.inv-avg[data-cat="${cat}"]`)||{}).value||0;
+    const val=+(document.querySelector(`.inv-val[data-cat="${cat}"]`)||{}).value||0;
+    if(qty>0||val>0)items.push({cat,qty,avgPrice:avg,val});
+  });
+  return items;
+}
+
+function oAddInv(){showM(`
+<div class="m-hdr"><h2>Добавить снимок остатков</h2><button class="m-x" onclick="hideM()">×</button></div>
+<div class="fg c1" style="margin-bottom:12px">
+  <div class="fgrp"><label>Дата</label><input type="date" id="fd" value="${today()}"></div>
+  <div class="fgrp"><label>Примечание</label><input type="text" id="fnote" placeholder="необязательно"></div>
+</div>
+<div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.8px;margin-bottom:6px">Категория / Остаток / Ср.цена / Оценка</div>
+<div style="max-height:50vh;overflow-y:auto;padding-right:4px">${invFormRows(null)}</div>
+<div class="m-foot"><button class="btn btn-g" onclick="hideM()">Отмена</button><button class="btn btn-p" onclick="svAddInv()">💾 Сохранить</button></div>`)}
+
+function svAddInv(){
+  const d=document.getElementById('fd').value;if(!d){alert('Укажите дату');return}
+  const items=readInvRows();
+  const inv=inventory();
+  inv.push({id:gid(),date:d,note:document.getElementById('fnote').value,items,source:'manual'});
+  save(K.inventory,inv);hideM();render();
+}
+
+function oEditInv(id){
+  const x=inventory().find(s=>s.id===id);if(!x)return;
+  showM(`
+<div class="m-hdr"><h2>✏️ Редактировать остатки</h2><button class="m-x" onclick="hideM()">×</button></div>
+<div class="fg c1" style="margin-bottom:12px">
+  <div class="fgrp"><label>Дата</label><input type="date" id="fd" value="${x.date}"></div>
+  <div class="fgrp"><label>Примечание</label><input type="text" id="fnote" value="${x.note||''}"></div>
+</div>
+<div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.8px;margin-bottom:6px">Категория / Остаток / Ср.цена / Оценка</div>
+<div style="max-height:50vh;overflow-y:auto;padding-right:4px">${invFormRows(x.items)}</div>
+<div class="m-foot"><button class="btn btn-g" onclick="hideM()">Отмена</button><button class="btn btn-p" onclick="svEditInv('${id}')">💾 Сохранить</button></div>`)
+}
+function svEditInv(id){
+  const d=document.getElementById('fd').value;if(!d){alert('Укажите дату');return}
+  const inv=inventory().map(x=>x.id===id?{...x,date:d,note:document.getElementById('fnote').value,items:readInvRows()}:x);
+  save(K.inventory,inv);hideM();render();
+}
+function delInv(id){if(!confirm('Удалить снимок?'))return;save(K.inventory,inventory().filter(x=>x.id!==id));render()}
+
+// ═══ EVOTOR INVENTORY CSV IMPORT ═══
+function oInvEvotor(){showM(`
+<div class="m-hdr"><h2>📄 Остатки из Эвотора</h2><button class="m-x" onclick="hideM()">×</button></div>
+<div style="margin-bottom:14px;padding:12px 14px;background:var(--surface2);border-radius:8px;font-size:12px;color:var(--muted);line-height:1.7">
+  <b style="color:var(--text)">Как выгрузить из Эвотора:</b><br>
+  Товары → Остатки → Выгрузить → CSV<br>
+  <span style="color:var(--warning)">Колонки: Наименование, Единица, Количество, Цена, Стоимость</span>
+</div>
+<div style="margin-bottom:12px" class="fg">
+  <div class="fgrp"><label>Дата снимка</label><input type="date" id="inv-date" value="${today()}"></div>
+  <div class="fgrp"><label>Примечание</label><input type="text" id="inv-note" placeholder="необязательно"></div>
+</div>
+<div id="inv-drop" onclick="document.getElementById('inv-file').click()"
+  style="border:2px dashed var(--border);border-radius:12px;padding:32px;text-align:center;cursor:pointer"
+  onmouseover="this.style.borderColor='var(--success)'" onmouseout="this.style.borderColor='var(--border)'">
+  <div style="font-size:28px;margin-bottom:8px">📂</div>
+  <div style="font-weight:600;margin-bottom:4px">Нажмите для выбора CSV файла</div>
+  <div style="font-size:11px;color:var(--muted)">Остатки товаров.csv</div>
+  <input type="file" id="inv-file" accept=".csv,text/csv" style="display:none" onchange="parseInvCSV(this)">
+</div>
+<div id="inv-result" style="display:none;margin-top:14px">
+  <div id="inv-preview" style="max-height:260px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;font-size:12px"></div>
+  <div id="inv-stats" style="margin-top:8px;font-size:12px;color:var(--muted)"></div>
+</div>
+<div id="inv-error" style="display:none;background:rgba(239,68,68,.1);border:1px solid var(--danger);border-radius:10px;padding:12px;margin-top:12px">
+  <div style="color:var(--danger);font-weight:600;margin-bottom:3px">❌ Ошибка</div>
+  <div id="inv-error-msg" style="font-size:12px;color:var(--muted)"></div>
+</div>
+<div class="m-foot">
+  <button class="btn btn-g" onclick="hideM()">Отмена</button>
+  <button class="btn btn-p" id="inv-save-btn" style="display:none" onclick="svInvCSV()">✅ Сохранить остатки</button>
+</div>`)}
+
+let _invRows=[];
+
+function parseInvCSV(input){
+  const file=input.files[0];if(!file)return;
+  const reader=new FileReader();
+  reader.onload=e=>{
+    try{
+      let text=e.target.result;
+      if(text.charCodeAt(0)===0xFEFF)text=text.slice(1);
+      const lines=text.split('\n').map(l=>l.trim()).filter(l=>l);
+      // find header
+      let hi=-1,headers=[];
+      for(let i=0;i<Math.min(lines.length,10);i++){
+        const cols=parseCsvLine(lines[i]).map(c=>c.toLowerCase());
+        if(cols.some(c=>c.includes('наимен')||c.includes('товар'))&&cols.some(c=>c.includes('колич')||c.includes('остат'))){hi=i;headers=cols;break;}
+      }
+      if(hi===-1)throw new Error('Не найден заголовок. Убедись что это файл остатков из Эвотора.');
+      const ci=kws=>headers.findIndex(h=>kws.some(k=>h.includes(k)));
+      const iName=ci(['наимен','товар','назван']);
+      const iQty=ci(['колич','остат','кол-во']);
+      const iPrice=ci(['цена']);
+      const iVal=ci(['сумм','стоим','итог']);
+      const iCat=ci(['групп','катег']);
+
+      // parse rows, group by category
+      const catMap={};
+      for(let i=hi+1;i<lines.length;i++){
+        const cols=parseCsvLine(lines[i]);
+        if(!cols[iName>-1?iName:0])continue;
+        const name=(cols[iName>-1?iName:0]||'').trim();
+        if(!name||name.toLowerCase().includes('итого'))continue;
+        const qty=parseNum(cols[iQty>-1?iQty:2]);
+        const price=parseNum(cols[iPrice>-1?iPrice:3]);
+        const val=parseNum(cols[iVal>-1?iVal:4]);
+        const cat=iCat>-1?(cols[iCat]||'').trim()||'Прочее':'Прочее';
+        if(!catMap[cat])catMap[cat]={cat,qty:0,totalVal:0,items:0,avgPrice:0};
+        catMap[cat].qty+=qty;catMap[cat].totalVal+=val||(qty*price);catMap[cat].items++;
+      }
+      _invRows=Object.values(catMap).map(c=>({cat:c.cat,qty:Math.round(c.qty),
+        val:Math.round(c.totalVal),avgPrice:c.qty>0?Math.round(c.totalVal/c.qty):0})).filter(r=>r.qty>0);
+
+      if(_invRows.length===0)throw new Error('Нет данных с количеством > 0.');
+      let html='<table style="width:100%"><thead><tr><th>Категория</th><th class="r">Кол-во</th><th class="r">Ср. цена</th><th class="r">Сумма</th></tr></thead><tbody>';
+      _invRows.forEach(r=>{html+=`<tr><td>${r.cat}</td><td class="r">${r.qty}</td><td class="r">${r.avgPrice?fr(r.avgPrice):'—'}</td><td class="r" style="color:var(--accent)">${fr(r.val)}</td></tr>`;});
+      html+='</tbody></table>';
+      const tot=_invRows.reduce((a,r)=>a+r.qty,0);
+      const totV=_invRows.reduce((a,r)=>a+r.val,0);
+      document.getElementById('inv-drop').style.display='none';
+      document.getElementById('inv-result').style.display='block';
+      document.getElementById('inv-preview').innerHTML=html;
+      document.getElementById('inv-stats').innerHTML=`Категорий: <b>${_invRows.length}</b> · Позиций: <b style="color:var(--success)">${tot}</b> · Оценка: <b style="color:var(--accent)">${fr(totV)}</b>`;
+      document.getElementById('inv-save-btn').style.display='flex';
+    }catch(err){
+      document.getElementById('inv-error').style.display='block';
+      document.getElementById('inv-error-msg').textContent=err.message;
+    }
+  };
+  reader.readAsText(file,'UTF-8');
+}
+
+function svInvCSV(){
+  const d=document.getElementById('inv-date').value||today();
+  const inv=inventory();
+  inv.push({id:gid(),date:d,note:document.getElementById('inv-note').value||'Эвотор CSV',items:_invRows,source:'evotor'});
+  save(K.inventory,inv);
+  hideM();
+  alert(`✅ Сохранено ${_invRows.length} категорий остатков!`);
+  render();
+}
+
+// ═══ ADD / SAVE HANDLERS (original, now with price tiers) ═══
+// ═══ EVOTOR CSV IMPORT ═══
+function oEvotor(){showM(`
+<div class="m-hdr"><h2>📄 Загрузить из Эвотора</h2><button class="m-x" onclick="hideM()">×</button></div>
+
+<div style="margin-bottom:16px;padding:12px 14px;background:var(--surface2);border-radius:8px;font-size:12px;color:var(--muted);line-height:1.7">
+  <b style="color:var(--text)">Как выгрузить файл из Эвотора:</b><br>
+  Эвотор → Отчёты → <b style="color:var(--success)">Сводный отчёт по продажам</b> → выбери период → Выгрузить CSV
+</div>
+
+<div id="ev-drop" onclick="document.getElementById('ev-file').click()"
+  style="border:2px dashed var(--border);border-radius:12px;padding:36px;text-align:center;cursor:pointer;transition:border-color .2s"
+  onmouseover="this.style.borderColor='var(--success)'" onmouseout="this.style.borderColor='var(--border)'">
+  <div style="font-size:32px;margin-bottom:10px">📂</div>
+  <div style="font-weight:600;margin-bottom:4px">Нажмите чтобы выбрать CSV файл</div>
+  <div style="font-size:11px;color:var(--muted)">Сводный отчёт по продажам.csv</div>
+  <input type="file" id="ev-file" accept=".csv,text/csv" style="display:none" onchange="parseEvotorCSV(this)">
+</div>
+
+<div id="ev-result" style="display:none;margin-top:16px">
+  <div style="font-weight:700;font-size:12px;color:var(--success);margin-bottom:10px;text-transform:uppercase;letter-spacing:1px">✅ Файл распознан</div>
+  <div id="ev-preview-table" style="max-height:280px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;font-size:12px"></div>
+  <div id="ev-stats" style="margin-top:10px;font-size:12px;color:var(--muted)"></div>
+</div>
+
+<div id="ev-error" style="display:none;background:rgba(239,68,68,.1);border:1px solid var(--danger);border-radius:10px;padding:14px;margin-top:14px">
+  <div style="color:var(--danger);font-weight:600;margin-bottom:4px">❌ Ошибка чтения файла</div>
+  <div id="ev-error-msg" style="font-size:12px;color:var(--muted)"></div>
+</div>
+
+<div class="m-foot">
+  <button class="btn btn-g" onclick="hideM()">Отмена</button>
+  <button class="btn btn-p" id="ev-save-btn" style="display:none" onclick="svEvotorCSV()">✅ Импортировать в базу</button>
+</div>`)}
+
+let _evRows=[];
+
+function parseNum(s){if(!s)return 0;return parseFloat(String(s).replace(/\s/g,'').replace(',','.'))||0;}
+function parseDate(s){
+  if(!s)return null;
+  let m=s.match(/(\d{2})[\.\/-](\d{2})[\.\/-](\d{4})/);
+  if(m)return`${m[3]}-${m[2]}-${m[1]}`;
+  m=s.match(/(\d{4})[\.\/-](\d{2})[\.\/-](\d{2})/);
+  if(m)return`${m[1]}-${m[2]}-${m[3]}`;
+  return null;
+}
+function parseCsvLine(line){
+  // handle semicolon or comma delimiters, respect quotes
+  const sep=line.includes(';')?';':',';
+  const cols=[];let cur='',inQ=false;
+  for(let i=0;i<line.length;i++){
+    const c=line[i];
+    if(c==='"'){inQ=!inQ;}
+    else if(c===sep&&!inQ){cols.push(cur.trim());cur='';}
+    else cur+=c;
+  }
+  cols.push(cur.trim());
+  return cols.map(c=>c.replace(/^"|"$/g,'').trim());
+}
+
+function parseEvotorCSV(input){
+  const file=input.files[0];if(!file)return;
+  const tryParse=(text)=>{
+    try{
+      const lines=text.split('\n').map(l=>l.trim()).filter(l=>l.length>2);
+
+      // ── Step 1: find header row ──
+      let headerIdx=-1,headers=[];
+      for(let i=0;i<Math.min(lines.length,15);i++){
+        const cols=parseCsvLine(lines[i]).map(c=>c.toLowerCase());
+        // header must have a date-like column and at least one amount column
+        const hasDate=cols.some(c=>c.includes('дата'));
+        const hasAmt=cols.some(c=>c.includes('сумм')||c.includes('итого')||c.includes('налич')||c.includes('безнал')||c.includes('карт'));
+        if(hasDate&&hasAmt){headerIdx=i;headers=cols;break;}
+      }
+
+      let rows=[];
+
+      if(headerIdx!==-1){
+        // ── Step 2: map column indices ──
+        const ci=(keywords)=>{const idx=headers.findIndex(h=>keywords.some(k=>h.includes(k)));return idx;};
+        const iDate   = ci(['дата']);
+        const iNal    = ci(['наличным','нал.','касс','налич']);
+        const iBeznal = ci(['безналич','карт','эквайр','платёж','безнал']);
+        const iTotal  = ci(['итого','всего','сумм']);
+        const iPayType= ci(['тип оплат','способ оплат','форма оплат','вид оплат']);
+        const iAmt    = ci(['сумма']);
+
+        // ── Step 3: detect format ──
+        // FORMAT A: summary per day — has both nal & beznal columns
+        // FORMAT B: per-transaction — has payment_type + amount columns
+        // FORMAT C: per-transaction with nal/beznal in separate cols per row
+
+        const isFormatA = iDate>=0 && iNal>=0 && iBeznal>=0;
+        const isFormatB = iDate>=0 && iPayType>=0 && (iAmt>=0||iTotal>=0);
+
+        if(isFormatA){
+          // Per-day summary — original format, direct read
+          for(let i=headerIdx+1;i<lines.length;i++){
+            const cols=parseCsvLine(lines[i]);
+            if(!cols[iDate])continue;
+            const date=parseDate(cols[iDate]);if(!date)continue;
+            const nal=parseNum(cols[iNal]);
+            const beznal=parseNum(cols[iBeznal]);
+            const total=iTotal>=0?parseNum(cols[iTotal]):nal+beznal;
+            if(nal===0&&beznal===0&&total===0)continue;
+            // merge same-date rows
+            const ex=rows.find(r=>r.date===date);
+            if(ex){ex.nal+=nal;ex.beznal+=beznal;ex.total+=total||nal+beznal;ex.checks++;}
+            else rows.push({date,nal:Math.round(nal),beznal:Math.round(beznal),total:Math.round(total||nal+beznal),checks:1});
+          }
+        } else if(isFormatB){
+          // Per-transaction with payment type column — aggregate by date+type
+          const amtIdx=iAmt>=0?iAmt:iTotal;
+          for(let i=headerIdx+1;i<lines.length;i++){
+            const cols=parseCsvLine(lines[i]);
+            if(!cols[iDate])continue;
+            const date=parseDate(cols[iDate]);if(!date)continue;
+            const amt=parseNum(cols[amtIdx]);if(amt===0)continue;
+            const pt=(cols[iPayType]||'').toLowerCase();
+            const isNal=pt.includes('нал')||pt.includes('касс');
+            const isBeznal=pt.includes('безнал')||pt.includes('карт')||pt.includes('эквайр');
+            const ex=rows.find(r=>r.date===date);
+            if(ex){
+              if(isNal)ex.nal+=amt; else if(isBeznal)ex.beznal+=amt; else ex.nal+=amt;
+              ex.total+=amt;ex.checks++;
+            } else {
+              const r={date,nal:0,beznal:0,total:Math.round(amt),checks:1};
+              if(isNal)r.nal=Math.round(amt); else if(isBeznal)r.beznal=Math.round(amt); else r.nal=Math.round(amt);
+              rows.push(r);
+            }
+          }
+          rows.forEach(r=>{r.nal=Math.round(r.nal);r.beznal=Math.round(r.beznal);r.total=Math.round(r.total);});
+        } else {
+          // Fallback: try to read all numeric columns and guess
+          rows=parseEvotorFallback(lines,headerIdx,headers);
+        }
+      } else {
+        // No header found — try fallback patterns
+        rows=parseEvotorFallback(lines,-1,[]);
+      }
+
+      if(rows.length===0)throw new Error('Не удалось распознать данные. Убедись что выгружен «Сводный отчёт по продажам» из Эвотора (CSV с разделителями ; или ,).');
+      return rows;
+    }catch(e){throw e;}
+  };
+
+  const reader=new FileReader();
+  reader.onload=e=>{
+    try{
+      let text=e.target.result;
+      // detect BOM
+      if(text.charCodeAt(0)===0xFEFF)text=text.slice(1);
+      _evRows=tryParse(text);
+      showEvPreview();
+    }catch(err){
+      document.getElementById('ev-error').style.display='block';
+      document.getElementById('ev-error-msg').textContent=err.message;
+    }
+  };
+  reader.onerror=()=>{
+    // try windows-1251
+    const r2=new FileReader();
+    r2.onload=e2=>{
+      try{_evRows=tryParse(e2.target.result);showEvPreview();}
+      catch(err){document.getElementById('ev-error').style.display='block';document.getElementById('ev-error-msg').textContent=err.message;}
+    };
+    r2.readAsText(file,'windows-1251');
+  };
+  reader.readAsText(file,'UTF-8');
+}
+
+function parseEvotorFallback(lines,skip,headers){
+  // Last resort: scan for lines starting with a date pattern
+  const rows=[];
+  for(let i=skip+1;i<lines.length;i++){
+    const cols=parseCsvLine(lines[i]);
+    if(!cols[0])continue;
+    const date=parseDate(cols[0]);if(!date)continue;
+    // find all numeric values in remaining cols
+    const nums=cols.slice(1).map(parseNum).filter(n=>n>0);
+    if(nums.length===0)continue;
+    // heuristic: largest number is likely total/beznal, look for nal column
+    // try cols[1]=nal, cols[2]=beznal, cols[3]=total
+    let nal=0,beznal=0,total=0;
+    if(nums.length>=3){nal=nums[0];beznal=nums[1];total=nums[2];}
+    else if(nums.length===2){nal=nums[0];beznal=0;total=nums[1];}
+    else{total=nums[0];}
+    if(total===0)total=nal+beznal;
+    const ex=rows.find(r=>r.date===date);
+    if(ex){ex.nal+=nal;ex.beznal+=beznal;ex.total+=total;}
+    else rows.push({date,nal:Math.round(nal),beznal:Math.round(beznal),total:Math.round(total),checks:1});
+  }
+  return rows;
+}
+
+function showEvPreview(){
+  const existing=sales().map(x=>x.date);
+  const newRows=_evRows.filter(r=>!existing.includes(r.date));
+  const dupRows=_evRows.filter(r=>existing.includes(r.date));
+
+  let tableHtml='<table style="width:100%"><thead><tr><th>Дата</th><th class="r">НАЛ</th><th class="r">БЕЗНАЛ</th><th class="r">Итого</th><th>Статус</th></tr></thead><tbody>';
+  _evRows.forEach(r=>{
+    const isDup=existing.includes(r.date);
+    tableHtml+=`<tr style="${isDup?'opacity:0.4':''}">
+      <td>${fd(r.date)}</td>
+      <td class="r">${r.nal?fr(r.nal):'—'}</td>
+      <td class="r">${r.beznal?fr(r.beznal):'—'}</td>
+      <td class="r" style="color:var(--accent);font-weight:600">${fr(r.total)}</td>
+      <td><span class="badge ${isDup?'b-warn':'b-ok'}" style="font-size:10px">${isDup?'⚠️ Уже есть':'✅ Новая'}</span></td></tr>`;
+  });
+  tableHtml+='</tbody></table>';
+
+  const totalNew=newRows.reduce((a,r)=>a+r.total,0);
+  document.getElementById('ev-drop').style.display='none';
+  document.getElementById('ev-result').style.display='block';
+  document.getElementById('ev-preview-table').innerHTML=tableHtml;
+  document.getElementById('ev-stats').innerHTML=
+    `Найдено дней: <b>${_evRows.length}</b> · Новых: <b style="color:var(--success)">${newRows.length}</b> · Уже есть: <b style="color:var(--warning)">${dupRows.length}</b> · Сумма новых: <b style="color:var(--accent)">${fr(totalNew)}</b>`;
+  document.getElementById('ev-save-btn').style.display='flex';
+  if(newRows.length===0)document.getElementById('ev-save-btn').textContent='Все дни уже импортированы';
+}
+
+function svEvotorCSV(){
+  const existing=sales();
+  const existingDates=existing.map(x=>x.date);
+  const newRows=_evRows.filter(r=>!existingDates.includes(r.date));
+  newRows.forEach(r=>{
+    const total=r.nal+r.beznal||1;
+    const nalChecks=r.nal>0&&r.beznal===0?r.checks||0:r.nal>0?Math.round((r.nal/total)*(r.checks||0)):0;
+    const beznalChecks=r.beznal>0&&r.nal===0?r.checks||0:r.beznal>0?Math.round((r.beznal/total)*(r.checks||0)):0;
+    existing.push({id:gid(),date:r.date,nal:r.nal,beznal:r.beznal,
+      nalChecks,beznalChecks,note:'Эвотор CSV',source:'evotor'});
+  });
+  save(K.sales,existing);
+  hideM();
+  alert(`✅ Импортировано ${newRows.length} дней продаж из Эвотора!`);
+  render();
+}
+
+
+function oAddSale(){showM(`
+<div class="m-hdr"><h2>Добавить продажу вручную</h2><button class="m-x" onclick="hideM()">×</button></div>
+<div class="fg">
+  <div class="fgrp full"><label>Дата</label><input type="date" id="fd" value="${today()}"></div>
+  <div class="fgrp"><label>НАЛ (₽)</label><input type="number" id="fn" placeholder="0" min="0"></div>
+  <div class="fgrp"><label>БЕЗНАЛ (₽)</label><input type="number" id="fb" placeholder="0" min="0"></div>
+  <div class="fgrp"><label>Чеки НАЛ (шт)</label><input type="number" id="fnc" placeholder="0" min="0"></div>
+  <div class="fgrp"><label>Чеки БЕЗНАЛ (шт)</label><input type="number" id="fbc" placeholder="0" min="0"></div>
+  <div class="fgrp full"><label>Примечание</label><input type="text" id="fnote" placeholder="необязательно"></div>
+  <div class="fgrp full">${tierFormHtml(null)}</div>
+</div>
+<div class="m-foot"><button class="btn btn-g" onclick="hideM()">Отмена</button><button class="btn btn-p" onclick="svSale()">Сохранить</button></div>`)}
+
+function svSale(){
+  const d=document.getElementById('fd').value;if(!d){alert('Укажите дату');return}
+  const ss=sales();
+  ss.push({id:gid(),date:d,nal:+document.getElementById('fn').value||0,beznal:+document.getElementById('fb').value||0,
+    nalChecks:+document.getElementById('fnc').value||0,beznalChecks:+document.getElementById('fbc').value||0,
+    note:document.getElementById('fnote').value,priceCats:readTiers(),source:'manual'});
+  save(K.sales,ss);hideM();render();
+}
+function delSale(id){if(!confirm('Удалить запись?'))return;save(K.sales,sales().filter(x=>x.id!==id));render()}
+
+function oAddExp(){showM(`
+<div class="m-hdr"><h2>Добавить расход</h2><button class="m-x" onclick="hideM()">×</button></div>
+<div class="fg">
+  <div class="fgrp full"><label>Дата</label><input type="date" id="fd" value="${today()}"></div>
+  <div class="fgrp full"><label>Описание</label><input type="text" id="fdesc" placeholder="Аренда, зарплата, закупка..."></div>
+  <div class="fgrp full"><label>Категория</label><select id="fcat">${CATS.map(c=>`<option>${c}</option>`).join('')}</select></div>
+  <div class="fgrp"><label>НАЛ (₽)</label><input type="number" id="fn" placeholder="0" min="0"></div>
+  <div class="fgrp"><label>БЕЗНАЛ (₽)</label><input type="number" id="fb" placeholder="0" min="0"></div>
+  ${fundSourceSelect('business')}
+  <div class="fgrp full"><label>Примечание</label><input type="text" id="fnote" placeholder="необязательно"></div>
+</div>
+<div class="m-foot"><button class="btn btn-g" onclick="hideM()">Отмена</button><button class="btn btn-p" onclick="svExp()">Сохранить</button></div>`)}
+
+function svExp(){
+  const d=document.getElementById('fd').value;if(!d){alert('Укажите дату');return}
+  const ee=exps();
+  ee.push({id:gid(),date:d,description:document.getElementById('fdesc').value,category:document.getElementById('fcat').value,
+    nal:+document.getElementById('fn').value||0,beznal:+document.getElementById('fb').value||0,
+    note:document.getElementById('fnote').value,fundSource:readFundSource()});
+  save(K.expenses,ee);hideM();render();
+}
+function delExp(id){if(!confirm('Удалить запись?'))return;save(K.expenses,exps().filter(x=>x.id!==id));render()}
+
+function oAddBatch(){
+  const n=batches().length+1;
+  showM(`
+<div class="m-hdr"><h2>Добавить партию</h2><button class="m-x" onclick="hideM()">×</button></div>
+<div class="fg">
+  <div class="fgrp"><label>Дата</label><input type="date" id="fd" value="${today()}"></div>
+  <div class="fgrp"><label>№ Партии</label><input type="text" id="fnum" value="П-${String(n).padStart(3,'0')}"></div>
+  <div class="fgrp full"><label>Тип палеты</label><input type="text" id="ftype" placeholder="Смешанная, одежда, электроника..."></div>
+  <div class="fgrp"><label>Палет (шт)</label><input type="number" id="fpal" placeholder="0" min="0"></div>
+  <div class="fgrp"><label>Стоимость (₽)</label><input type="number" id="fcost" placeholder="0" min="0" oninput="updateCogsCalc()"></div>
+  <div class="fgrp"><label>Доставка (₽)</label><input type="number" id="fdel" placeholder="0" min="0" oninput="updateCogsCalc()"></div>
+  <div class="fgrp"><label>Единиц товара (шт)</label><input type="number" id="funits" placeholder="0" min="0"></div>
+  <div class="fgrp"><label>Оплата</label><select id="fpay"><option value="нал">Наличные</option><option value="безнал">Безналичные</option></select></div>
+  ${fundSourceSelect('business')}
+  <div class="fgrp full"><label>Примечание</label><input type="text" id="fnote" placeholder="необязательно"></div>
+  <div class="fgrp full">${cogsFormHtml(null)}</div>
+</div>
+<div class="m-foot"><button class="btn btn-g" onclick="hideM()">Отмена</button><button class="btn btn-p" onclick="svBatch()">Сохранить</button></div>`)}
+
+function svBatch(){
+  const d=document.getElementById('fd').value;if(!d){alert('Укажите дату');return}
+  const bb=batches();
+  bb.push({id:gid(),date:d,batchNum:document.getElementById('fnum').value,paletType:document.getElementById('ftype').value,
+    paletCount:+document.getElementById('fpal').value||0,cost:+document.getElementById('fcost').value||0,
+    delivery:+document.getElementById('fdel').value||0,units:+document.getElementById('funits').value||0,
+    payType:document.getElementById('fpay').value,note:document.getElementById('fnote').value,
+    fundSource:readFundSource(),cogsItems:readCogsItems()});
+  save(K.batches,bb);hideM();render();
+}
+function delBatch(id){if(!confirm('Удалить запись?'))return;save(K.batches,batches().filter(x=>x.id!==id));render()}
+
+function saveGistToken(){
+  const token=document.getElementById('s-gh-token').value.trim();
+  if(!token){alert('Введи токен!');return;}
+  save(K.settings,{...cfg(),githubToken:token});
+  alert('✅ Токен сохранён! Теперь нажми «📤 Опубликовать» на дашборде.');render();
+}
+
+function saveCfg(){
+  const cur=cfg();
+  save(K.settings,{...cur,
+    storeName:document.getElementById('s-name').value||'НАХОДКА',
+    taxRate:(+document.getElementById('s-tax').value||8)/100,
+    cashBalance:+document.getElementById('s-cash').value||0,
+    beznalBalance:+document.getElementById('s-beznal').value||0,
+    founderInvestment:+document.getElementById('s-founder').value||0,
+    startDate:document.getElementById('s-start').value||'2026-03-23'});
+  alert('Настройки сохранены!');render();
+}
+
+function savePriceCats(){
+  const rows=document.querySelectorAll('.pc-row');
+  const cats=[];
+  rows.forEach((row,i)=>{
+    const key=(row.querySelector('.pc-key').value||'').trim().replace(/\s+/g,'_').toLowerCase();
+    const label=(row.querySelector('.pc-label').value||'').trim();
+    const price=+row.querySelector('.pc-price').value||0;
+    if(key&&label&&price>0)cats.push({key,label,price});
+  });
+  if(cats.length===0){alert('Добавь хотя бы одну категорию!');return}
+  const cur=cfg();
+  save(K.settings,{...cur,priceCats:cats});
+  alert(`✅ Сохранено ${cats.length} категорий!`);render();
+}
+
+function addPcRow(){
+  const container=document.getElementById('pc-rows');
+  const i=container.querySelectorAll('.pc-row').length;
+  const color=TIER_COLORS[i%TIER_COLORS.length];
+  const div=document.createElement('div');
+  div.className='pc-row';
+  div.style.cssText='display:grid;grid-template-columns:80px 1fr 120px 36px;gap:8px;align-items:center;margin-bottom:6px';
+  div.innerHTML=`<input type="text" class="pc-key" placeholder="ключ" style="padding:6px 8px;font-size:12px;font-family:'JetBrains Mono',monospace;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);width:100%;outline:none">
+    <input type="text" class="pc-label" placeholder="название" style="padding:6px 8px;font-size:13px;color:${color};background:var(--surface2);border:1px solid var(--border);border-radius:8px;width:100%;outline:none;font-family:'Montserrat',sans-serif">
+    <input type="number" class="pc-price" placeholder="цена" min="0" style="padding:6px 8px;font-size:13px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);width:100%;outline:none;font-family:'Montserrat',sans-serif">
+    <button onclick="this.closest('.pc-row').remove()" style="background:rgba(239,68,68,.15);border:none;color:var(--danger);border-radius:6px;padding:6px 8px;cursor:pointer;font-size:13px">✕</button>`;
+  container.appendChild(div);
+}
+
+function resetPcRows(){
+  if(!confirm('Сбросить ценовые категории к умолчанию?'))return;
+  const cur=cfg();
+  delete cur.priceCats;
+  save(K.settings,cur);
+  render();
+}
+
+function oEditPlan(){
+  const s=cfg(),start=new Date(s.startDate||'2026-03-01'),pp=plans();
+  const ms=[];for(let i=0;i<12;i++){const d=new Date(start.getFullYear(),start.getMonth()+i,1);ms.push(d.toISOString().slice(0,7))}
+  showM(`
+<div class="m-hdr"><h2>Редактировать план</h2><button class="m-x" onclick="hideM()">×</button></div>
+<div style="max-height:55vh;overflow-y:auto;margin:-4px 0">
+${ms.map(ym=>{const pl=pp.find(x=>x.ym===ym)||{planRevenue:'',planExpenses:''};return`
+<div style="padding:12px 0;border-bottom:1px solid var(--border)">
+  <div style="font-weight:600;color:var(--accent);font-size:12px;margin-bottom:8px">${ml(ym)}</div>
+  <div class="fg">
+    <div class="fgrp"><label>План выручки</label><input type="number" class="pr" data-ym="${ym}" value="${pl.planRevenue||''}" placeholder="0"></div>
+    <div class="fgrp"><label>План расходов</label><input type="number" class="pe" data-ym="${ym}" value="${pl.planExpenses||''}" placeholder="0"></div>
+  </div></div>`}).join('')}
+</div>
+<div class="m-foot"><button class="btn btn-g" onclick="hideM()">Отмена</button><button class="btn btn-p" onclick="svPlans()">Сохранить</button></div>`)}
+
+function svPlans(){
+  const pp=[];
+  document.querySelectorAll('.pr').forEach(el=>{
+    const ym=el.dataset.ym,pe=document.querySelector(`.pe[data-ym="${ym}"]`);
+    pp.push({ym,planRevenue:+el.value||0,planExpenses:+pe?.value||0});
+  });
+  save(K.plans,pp);hideM();render();
+}
+
+function expData(){
+  const d={settings:cfg(),sales:sales(),expenses:exps(),batches:batches(),plans:plans(),inventory:inventory(),exportDate:new Date().toISOString()};
+  const blob=new Blob([JSON.stringify(d,null,2)],{type:'application/json'});
+  const url=URL.createObjectURL(blob),a=document.createElement('a');
+  a.href=url;a.download=`nakhodka_backup_${today()}.json`;a.click();URL.revokeObjectURL(url);
+}
+
+function impData(input){
+  const file=input.files[0];if(!file)return;
+  const r=new FileReader();
+  r.onload=e=>{try{
+    const d=JSON.parse(e.target.result);
+    if(d.settings)save(K.settings,d.settings);
+    if(d.sales)save(K.sales,d.sales);
+    if(d.expenses)save(K.expenses,d.expenses);
+    if(d.batches)save(K.batches,d.batches);
+    if(d.plans)save(K.plans,d.plans);
+    if(d.inventory)save(K.inventory,d.inventory);
+    alert('Данные импортированы!');render();
+  }catch(err){alert('Ошибка импорта: '+err.message)}};
+  r.readAsText(file);input.value='';
+}
+
+function clearAll(){
+  if(!confirm('Удалить ВСЕ данные? Это действие нельзя отменить!'))return;
+  if(!confirm('Вы уверены? Все записи будут удалены навсегда.'))return;
+  Object.values(K).forEach(k=>localStorage.removeItem(k));
+  alert('Данные очищены.');render();
+}
+
+// ═══ PLANNING ═══
+function calcPlanning(){
+  const s=cfg();
+  const bal=calcBal();
+  const totalCash=bal.c+bal.b;
+  const allSales=sales();
+  const allExp=exps();
+  const allBatch=batches();
+
+  // ── Aggregate totals ──
+  const totalRev=allSales.reduce((a,x)=>a+(x.nal||0)+(x.beznal||0),0);
+  const totalTaxAccrued=totalRev*s.taxRate;
+
+  // ── Monthly dynamics ──
+  const dyn=calcDyn();
+  const last3=dyn.slice(-3).filter(m=>m.rev>0);
+  const last1=dyn.slice(-1)[0]||{rev:0,opexp:0,cogs:0};
+  const avgRev=last3.length?last3.reduce((a,m)=>a+m.rev,0)/last3.length:0;
+  const avgOpExp=last3.length?last3.reduce((a,m)=>a+m.opexp,0)/last3.length:0;
+  const avgCogs=last3.length?last3.reduce((a,m)=>a+m.cogs,0)/last3.length:0;
+
+  // ── Tax reserve: current quarter unpaid estimate ──
+  // Simplified: reserve = current month accrued tax
+  const curM=calcMonth();
+  const taxReserve=Math.max(0,totalTaxAccrued-(s.taxPaid||0));
+
+  // ── Operating buffer: 1.5 months avg opex ──
+  const opBuffer=Math.round(avgOpExp*1.5);
+
+  // ── Purchase budget (user-set or auto) ──
+  const purchasePlan=s.purchasePlan||0;
+
+  // ── Safe dividend ──
+  const lockedFunds=taxReserve+opBuffer+purchasePlan;
+  const safeDividend=Math.max(0,totalCash-lockedFunds);
+
+  // ── Investment recovery ──
+  const invested=s.founderInvestment||((s.cashBalance||0)+(s.beznalBalance||0));
+  const withdrawn=s.withdrawn||0;
+  const businessProfit=totalRev-allExp.filter(x=>x.category!=='Товар/Палеты'&&x.category!=='Доставка').reduce((a,x)=>a+(x.nal||0)+(x.beznal||0),0)-allBatch.reduce((a,x)=>a+(x.cost||0)+(x.delivery||0),0)-totalTaxAccrued;
+
+  // ── Days until cash gap ──
+  const dailyBurn=(avgOpExp+avgCogs)/30;
+  const daysOfCash=dailyBurn>0?Math.floor(totalCash/dailyBurn):999;
+
+  // ── Purchase safety check ──
+  // How much can buy without going below minimum safe balance
+  const minSafeBalance=opBuffer+taxReserve;
+  const maxPurchaseBudget=Math.max(0,totalCash-minSafeBalance);
+
+  return{
+    bal,totalCash,totalRev,totalTaxAccrued,taxReserve,
+    opBuffer,purchasePlan,lockedFunds,safeDividend,
+    invested,withdrawn,businessProfit,
+    avgRev,avgOpExp,avgCogs,
+    dailyBurn,daysOfCash,maxPurchaseBudget,
+    minSafeBalance,last1
+  };
+}
+
+// ── Save planning settings ──
+function savePurchasePlan(){
+  const v=+document.getElementById('pp-purchase').value||0;
+  const taxPaid=+document.getElementById('pp-taxpaid').value||0;
+  const withdrawn=+document.getElementById('pp-withdrawn').value||0;
+  const cur=cfg();
+  save(K.settings,{...cur,purchasePlan:v,taxPaid,withdrawn});
+  render();
+}
+
+function rPlanning(){
+  const p=calcPlanning(),s=cfg();
+  const {bal,totalCash,taxReserve,opBuffer,purchasePlan,lockedFunds,safeDividend,
+         invested,withdrawn,avgRev,avgOpExp,avgCogs,dailyBurn,daysOfCash,
+         maxPurchaseBudget,minSafeBalance,businessProfit,totalTaxAccrued} = p;
+
+  // Health status
+  let health,hColor,hIcon;
+  if(daysOfCash>60&&safeDividend>0){health='Отличное';hColor='var(--success)';hIcon='✅';}
+  else if(daysOfCash>30){health='Норма';hColor='var(--warning)';hIcon='⚠️';}
+  else{health='Критично';hColor='var(--danger)';hIcon='🚨';}
+
+  // Allocation bar widths
+  const barTotal=Math.max(totalCash,lockedFunds+1);
+  const wTax=Math.min(100,(taxReserve/barTotal)*100);
+  const wOp=Math.min(100,((opBuffer)/barTotal)*100);
+  const wPurchase=Math.min(100,(purchasePlan/barTotal)*100);
+  const wDiv=Math.max(0,Math.min(100,(safeDividend/barTotal)*100));
+
+  // Purchase test
+  const purchaseRisk=purchasePlan>maxPurchaseBudget?'bad':purchasePlan>maxPurchaseBudget*0.8?'warn':'ok';
+  const purchaseRiskText=purchaseRisk==='bad'?'❌ Риск кассового разрыва':purchaseRisk==='warn'?'⚠️ Осторожно — мало резерва':'✅ Безопасно';
+  const purchaseRiskColor=purchaseRisk==='bad'?'var(--danger)':purchaseRisk==='warn'?'var(--warning)':'var(--success)';
+
+  return`
+<div class="page-hdr">
+  <div><div class="page-title">💡 Финансовое планирование</div>
+  <div class="page-sub">Распределение денег · Закуп · Дивиденды · Кассовый разрыв</div></div>
+</div>
+
+<!-- БЛОК 1: Финансовое здоровье -->
+<div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:20px 24px;margin-bottom:20px;display:flex;align-items:center;gap:20px;flex-wrap:wrap">
+  <div style="font-size:36px">${hIcon}</div>
+  <div style="flex:1;min-width:200px">
+    <div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Финансовое здоровье</div>
+    <div style="font-size:22px;font-weight:700;color:${hColor}">${health}</div>
+    <div style="font-size:12px;color:var(--muted);margin-top:2px">
+      ${daysOfCash<999?`Денег хватит примерно на <b style="color:${daysOfCash>45?'var(--success)':daysOfCash>20?'var(--warning)':'var(--danger)'}">${daysOfCash} дней</b> при текущем расходе`:'Расход незначительный — данных пока мало'}
+    </div>
+  </div>
+  <div style="display:flex;gap:16px;flex-wrap:wrap">
+    <div style="text-align:center">
+      <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.8px;margin-bottom:4px">НАЛ сейчас</div>
+      <div style="font-family:'JetBrains Mono',monospace;font-size:17px;font-weight:700;color:${bal.c>=0?'var(--success)':'var(--danger)'}">${fr(bal.c)}</div>
+    </div>
+    <div style="text-align:center">
+      <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.8px;margin-bottom:4px">БЕЗНАЛ сейчас</div>
+      <div style="font-family:'JetBrains Mono',monospace;font-size:17px;font-weight:700;color:${bal.b>=0?'var(--success)':'var(--danger)'}">${fr(bal.b)}</div>
+    </div>
+    <div style="text-align:center;border-left:1px solid var(--border);padding-left:16px">
+      <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.8px;margin-bottom:4px">ИТОГО</div>
+      <div style="font-family:'JetBrains Mono',monospace;font-size:20px;font-weight:700;color:var(--accent)">${fr(totalCash)}</div>
+    </div>
+  </div>
+</div>
+
+<!-- БЛОК 2: Распределение средств -->
+<div class="card" style="margin-bottom:20px">
+  <div class="card-hdr"><h3>🥧 Распределение: куда идут твои деньги</h3></div>
+  <div style="padding:18px 20px">
+
+    <!-- Progress bar -->
+    <div style="display:flex;height:14px;border-radius:8px;overflow:hidden;margin-bottom:16px;background:var(--surface2)">
+      ${wTax>0?`<div style="width:${wTax.toFixed(1)}%;background:#ef4444;transition:width .3s" title="Налог АУСН"></div>`:''}
+      ${wOp>0?`<div style="width:${wOp.toFixed(1)}%;background:#eab308;transition:width .3s" title="Операционный буфер"></div>`:''}
+      ${wPurchase>0?`<div style="width:${wPurchase.toFixed(1)}%;background:#f97316;transition:width .3s" title="Бюджет на закуп"></div>`:''}
+      ${wDiv>0?`<div style="width:${wDiv.toFixed(1)}%;background:#22c55e;transition:width .3s" title="Можно вывести"></div>`:''}
+    </div>
+
+    <!-- Legend rows -->
+    <div style="display:flex;flex-direction:column;gap:10px">
+
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 16px;background:rgba(239,68,68,.07);border:1px solid rgba(239,68,68,.25);border-radius:10px">
+        <div style="display:flex;align-items:center;gap:12px">
+          <div style="width:10px;height:10px;border-radius:50%;background:#ef4444;flex-shrink:0"></div>
+          <div>
+            <div style="font-weight:600;font-size:13px">🗑 Налоговый резерв (АУСН ${(s.taxRate*100).toFixed(0)}%)</div>
+            <div style="font-size:11px;color:var(--muted);margin-top:1px">Начислено всего: ${fr(totalTaxAccrued)} · Уплачено: ${fr(s.taxPaid||0)}</div>
+          </div>
+        </div>
+        <div style="font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:#ef4444">${fr(taxReserve)}</div>
+      </div>
+
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 16px;background:rgba(234,179,8,.07);border:1px solid rgba(234,179,8,.25);border-radius:10px">
+        <div style="display:flex;align-items:center;gap:12px">
+          <div style="width:10px;height:10px;border-radius:50%;background:#eab308;flex-shrink:0"></div>
+          <div>
+            <div style="font-weight:600;font-size:13px">🛡 Операционный буфер (1.5 мес. расходов)</div>
+            <div style="font-size:11px;color:var(--muted);margin-top:1px">Среднемес. опер. расходы: ${fr(avgOpExp)} · Запас для работы без выручки</div>
+          </div>
+        </div>
+        <div style="font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:#eab308">${fr(opBuffer)}</div>
+      </div>
+
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 16px;background:rgba(249,115,22,.07);border:1px solid rgba(249,115,22,.25);border-radius:10px">
+        <div style="display:flex;align-items:center;gap:12px">
+          <div style="width:10px;height:10px;border-radius:50%;background:#f97316;flex-shrink:0"></div>
+          <div>
+            <div style="font-weight:600;font-size:13px">📦 Бюджет на следующий закуп</div>
+            <div style="font-size:11px;color:var(--muted);margin-top:1px">Задаётся вручную ниже · Максимально безопасно: ${fr(maxPurchaseBudget)}</div>
+          </div>
+        </div>
+        <div style="font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:#f97316">${fr(purchasePlan)}</div>
+      </div>
+
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:14px 16px;background:rgba(34,197,94,.08);border:2px solid rgba(34,197,94,.35);border-radius:10px">
+        <div style="display:flex;align-items:center;gap:12px">
+          <div style="width:10px;height:10px;border-radius:50%;background:#22c55e;flex-shrink:0"></div>
+          <div>
+            <div style="font-weight:700;font-size:14px;color:var(--success)">💸 Доступно к выводу (дивиденды)</div>
+            <div style="font-size:11px;color:var(--muted);margin-top:1px">Итого − налог − буфер − закуп = свободные деньги</div>
+          </div>
+        </div>
+        <div style="font-family:'JetBrains Mono',monospace;font-size:20px;font-weight:700;color:var(--success)">${fr(safeDividend)}</div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- БЛОК 3: Планирование закупа -->
+<div class="card" style="margin-bottom:20px">
+  <div class="card-hdr"><h3>🛒 Планирование закупа</h3><span style="font-size:11px;color:var(--muted)">Сколько безопасно потратить на товар</span></div>
+  <div style="padding:18px 20px">
+
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px;margin-bottom:20px">
+      <div class="kpi"><div class="kpi-lbl">Средняя выручка / мес</div><div class="kpi-val accent">${fr(avgRev)}</div></div>
+      <div class="kpi"><div class="kpi-lbl">Средняя себестоимость / мес</div><div class="kpi-val">${fr(avgCogs)}</div></div>
+      <div class="kpi"><div class="kpi-lbl">% себест. от выручки</div><div class="kpi-val">${avgRev>0?((avgCogs/avgRev)*100).toFixed(0)+'%':'—'}</div></div>
+      <div class="kpi"><div class="kpi-lbl">Макс. безопасный закуп</div><div class="kpi-val ok">${fr(maxPurchaseBudget)}</div></div>
+    </div>
+
+    <!-- Purchase calculator -->
+    <div style="background:var(--surface2);border-radius:12px;padding:16px 18px">
+      <div style="font-size:11px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:1px;margin-bottom:12px">🧮 Калькулятор закупа</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+        <div class="fgrp">
+          <label>Планируемая сумма закупа (₽)</label>
+          <input type="number" id="pp-purchase" value="${purchasePlan||''}" placeholder="например 80000" min="0" oninput="updatePurchaseCheck()">
+        </div>
+        <div class="fgrp">
+          <label>Уплачено налогов всего (₽)</label>
+          <input type="number" id="pp-taxpaid" value="${s.taxPaid||''}" placeholder="0" min="0">
+        </div>
+        <div class="fgrp">
+          <label>Выведено дивидендов всего (₽)</label>
+          <input type="number" id="pp-withdrawn" value="${s.withdrawn||''}" placeholder="0" min="0">
+        </div>
+        <div class="fgrp" style="display:flex;align-items:flex-end">
+          <button class="btn btn-p" style="width:100%" onclick="savePurchasePlan()">💾 Сохранить</button>
+        </div>
+      </div>
+      <div id="purchase-check" style="padding:12px 16px;border-radius:9px;font-size:13px;font-weight:600;background:rgba(34,197,94,.08);border:1px solid rgba(34,197,94,.3);color:var(--success)">
+        ${purchaseRiskText} — При закупе на ${fr(purchasePlan||0)} остаток: ${fr(totalCash-(purchasePlan||0))} · Минимум нужно: ${fr(minSafeBalance)}
+      </div>
+    </div>
+  </div>
+</div>
+<div id="plan-meta" data-minsafe="${minSafeBalance}" data-total="${totalCash}" data-maxpurchase="${maxPurchaseBudget}" style="display:none"></div>
+
+<!-- БЛОК 4: Возврат инвестиций -->
+<div class="card" style="margin-bottom:20px">
+  <div class="card-hdr"><h3>📊 Возврат инвестиций</h3><span style="font-size:11px;color:var(--muted)">Когда вернутся вложенные деньги</span></div>
+  <div style="padding:18px 20px">
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px;margin-bottom:16px">
+      <div class="kpi"><div class="kpi-lbl">Вложено (нач. баланс)</div><div class="kpi-val">${fr(invested)}</div></div>
+      <div class="kpi"><div class="kpi-lbl">Выведено дивидендов</div><div class="kpi-val">${fr(s.withdrawn||0)}</div></div>
+      <div class="kpi"><div class="kpi-lbl">Накопленная прибыль</div><div class="kpi-val ${businessProfit>=0?'ok':'bad'}">${fr(businessProfit)}</div></div>
+      <div class="kpi"><div class="kpi-lbl">Чистые активы бизнеса</div><div class="kpi-val ${totalCash>=0?'ok':'bad'}">${fr(totalCash)}</div></div>
+    </div>
+
+    ${invested>0?`
+    <div style="background:var(--surface2);border-radius:12px;padding:14px 18px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <span style="font-size:12px;font-weight:700;color:var(--muted)">Возврат инвестиций</span>
+        <span style="font-size:13px;font-weight:700;color:${businessProfit>=invested?'var(--success)':'var(--accent)'}">${businessProfit>=invested?'✅ Окупилось':'⏳ '+fr(invested-(s.withdrawn||0)-(businessProfit>0?businessProfit:0))+' до окупаемости'}</span>
+      </div>
+      <div style="background:var(--border);border-radius:8px;height:10px;overflow:hidden">
+        <div style="height:100%;background:${businessProfit>=invested?'var(--success)':'var(--accent)'};border-radius:8px;width:${Math.min(100,Math.max(0,((s.withdrawn||0)+Math.max(0,businessProfit))/invested*100)).toFixed(1)}%;transition:width .3s"></div>
+      </div>
+      <div style="display:flex;justify-content:space-between;margin-top:6px">
+        <span style="font-size:10px;color:var(--muted)">Вложено: ${fr(invested)}</span>
+        <span style="font-size:10px;color:var(--muted)">При среднемес. прибыли ${fr(avgRev>0?(avgRev-(avgOpExp+avgCogs))*0.92:0)}/мес → ≈ ${avgRev>0&&(avgRev-(avgOpExp+avgCogs))>0?Math.ceil(invested/((avgRev-(avgOpExp+avgCogs))*0.92))+' мес':'—'}</span>
+      </div>
+    </div>`:'<div style="color:var(--muted);font-size:12px;padding:8px 0">Укажи начальный баланс в Настройках чтобы видеть окупаемость</div>'}
+  </div>
+</div>
+
+<!-- БЛОК 5: Инструкция по логике -->
+<div style="background:rgba(59,130,246,.06);border:1px solid rgba(59,130,246,.2);border-radius:12px;padding:18px 20px;margin-bottom:20px">
+  <div style="font-size:13px;font-weight:700;color:var(--info);margin-bottom:12px">📖 Как читать этот раздел — логика расчётов</div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;font-size:12px;line-height:1.7;color:var(--muted)">
+    <div>
+      <div style="font-weight:700;color:var(--text);margin-bottom:4px">💰 Откуда берётся баланс</div>
+      Нач. остаток (из Настроек) + все Продажи − Расходы (без товар/доставка) − Партии = текущий остаток НАЛ/БЕЗНАЛ.<br>
+      <span style="color:var(--warning)">Сверяй с кассой и расч. счётом ежедневно.</span>
+    </div>
+    <div>
+      <div style="font-weight:700;color:var(--text);margin-bottom:4px">🗑 Налоговый резерв</div>
+      АУСН начисляется на каждый рубль выручки. Заплатить нужно в налоговую. Держи эти деньги «заблокированными» — не трать.
+      Введи сколько уже заплатил → резерв уменьшится.
+    </div>
+    <div>
+      <div style="font-weight:700;color:var(--text);margin-bottom:4px">🛡 Операционный буфер</div>
+      1.5 месяца средних опер. расходов — минимальная «подушка». Если выручка вдруг упадёт, ты протянешь без паники и новых вложений.
+    </div>
+    <div>
+      <div style="font-weight:700;color:var(--text);margin-bottom:4px">💸 Когда выводить дивиденды</div>
+      Только после того, как зарезервированы: налог + буфер + закуп. Что остаётся — твоё. Вводи сумму вывода в поле «Выведено», чтобы трекать.
+    </div>
+  </div>
+</div>`;
+}
+
+function updatePurchaseCheck(){
+  const meta=document.getElementById('plan-meta');
+  if(!meta)return;
+  const minSafe=+meta.dataset.minsafe||0;
+  const total=+meta.dataset.total||0;
+  const maxPurchase=+meta.dataset.maxpurchase||0;
+  const purchase=+document.getElementById('pp-purchase').value||0;
+  const remaining=total-purchase;
+  const el=document.getElementById('purchase-check');
+  if(!el)return;
+  if(purchase>total-minSafe){
+    el.style.background='rgba(239,68,68,.08)';el.style.borderColor='rgba(239,68,68,.3)';el.style.color='var(--danger)';
+    el.textContent='❌ Риск кассового разрыва — после закупа останется '+Math.round(remaining).toLocaleString('ru-RU')+' ₽, нужно минимум '+Math.round(minSafe).toLocaleString('ru-RU')+' ₽';
+  } else if(purchase>maxPurchase*0.8){
+    el.style.background='rgba(234,179,8,.08)';el.style.borderColor='rgba(234,179,8,.3)';el.style.color='var(--warning)';
+    el.textContent='⚠️ Осторожно — после закупа останется '+Math.round(remaining).toLocaleString('ru-RU')+' ₽, буфер небольшой';
+  } else {
+    el.style.background='rgba(34,197,94,.08)';el.style.borderColor='rgba(34,197,94,.3)';el.style.color='var(--success)';
+    el.textContent='✅ Безопасно — после закупа останется '+Math.round(remaining).toLocaleString('ru-RU')+' ₽ (минимум нужно '+Math.round(minSafe).toLocaleString('ru-RU')+' ₽)';
+  }
+}
+
+// ═══ GITHUB GIST INTEGRATION ═══
+
+// ── Read-only mode: detect ?gist= in URL ──
+const _urlParams=new URLSearchParams(window.location.search);
+const _gistId=_urlParams.get('gist');
+let _viewMode=!!_gistId;      // true = партнёр открыл ссылку
+let _gistData=null;            // данные загруженные из Gist
+
+// Override data accessors in view mode
+function salesData(){return _viewMode&&_gistData?(_gistData.sales||[]):sales();}
+function expsData(){return _viewMode&&_gistData?(_gistData.expenses||[]):exps();}
+function batchesData(){return _viewMode&&_gistData?(_gistData.batches||[]):batches();}
+function plansData(){return _viewMode&&_gistData?(_gistData.plans||[]):plans();}
+function cfgData(){return _viewMode&&_gistData?(_gistData.settings||cfg()):cfg();}
+
+// ── Fetch Gist data (for view mode) ──
+async function fetchGistData(gistId){
+  try{
+    const r=await fetch('https://api.github.com/gists/'+gistId);
+    if(!r.ok)throw new Error('Gist не найден ('+r.status+')');
+    const j=await r.json();
+    const fileKey=Object.keys(j.files)[0];
+    const content=j.files[fileKey].content;
+    return JSON.parse(content);
+  }catch(e){throw new Error('Ошибка загрузки данных: '+e.message);}
+}
+
+// ── Publish to Gist ──
+async function publishToGist(){
+  const s=cfg();
+  const token=s.githubToken||'';
+  if(!token){alert('Укажи GitHub токен в Настройках!');nav('settings');return;}
+
+  const btn=document.getElementById('gist-pub-btn');
+  if(btn){btn.textContent='⏳ Публикую...';btn.disabled=true;}
+
+  try{
+    const data={
+      settings:cfg(),sales:sales(),expenses:exps(),
+      batches:batches(),plans:plans(),inventory:inventory(),
+      publishedAt:new Date().toISOString()
+    };
+    const body={
+      description:'НАХОДКА — данные магазина',
+      public:true,
+      files:{'nakhodka_data.json':{content:JSON.stringify(data,null,2)}}
+    };
+
+    const existingGistId=s.gistId||'';
+    let url='https://api.github.com/gists';
+    let method='POST';
+    if(existingGistId){url='https://api.github.com/gists/'+existingGistId;method='PATCH';}
+
+    const r=await fetch(url,{
+      method,
+      headers:{'Authorization':'token '+token,'Content-Type':'application/json'},
+      body:JSON.stringify(body)
+    });
+    if(!r.ok){const e=await r.json();throw new Error(e.message||r.status);}
+    const j=await r.json();
+    const newGistId=j.id;
+
+    // Save gistId for future updates
+    save(K.settings,{...cfg(),gistId:newGistId});
+
+    // Build share URL
+    const baseUrl=window.location.href.split('?')[0].split('#')[0];
+    const shareUrl=baseUrl+'?gist='+newGistId;
+
+    // Show success modal
+    showM(`
+<div class="m-hdr"><h2>✅ Опубликовано!</h2><button class="m-x" onclick="hideM()">×</button></div>
+<div style="margin-bottom:16px;font-size:13px;color:var(--muted);line-height:1.7">
+  Данные успешно опубликованы на GitHub Gist.<br>
+  Партнёры откроют эту ссылку и увидят актуальные данные в режиме просмотра.
+</div>
+<div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:14px 16px;margin-bottom:16px">
+  <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.8px;margin-bottom:8px">Ссылка для партнёров</div>
+  <div style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--accent);word-break:break-all;line-height:1.6">${shareUrl}</div>
+</div>
+<div style="font-size:11px;color:var(--muted);margin-bottom:16px">
+  💡 Каждый раз когда ты нажимаешь «Опубликовать» — ссылка обновляется автоматически. Партнёры всегда открывают одну и ту же ссылку.
+</div>
+<div class="m-foot">
+  <button class="btn btn-g" onclick="hideM()">Закрыть</button>
+  <button class="btn btn-p" onclick="navigator.clipboard.writeText('${shareUrl}').then(()=>{this.textContent='✅ Скопировано!'})">📋 Копировать ссылку</button>
+</div>`);
+  }catch(e){
+    alert('❌ Ошибка публикации: '+e.message);
+  }finally{
+    if(btn){btn.textContent='📤 Опубликовать';btn.disabled=false;}
+  }
+}
+
+// ── View mode banner ──
+function viewModeBanner(){
+  if(!_viewMode)return'';
+  const pub=_gistData&&_gistData.publishedAt?new Date(_gistData.publishedAt).toLocaleString('ru-RU'):'—';
+  return`<div style="position:fixed;top:0;left:0;right:0;z-index:999;background:#1a1a2e;border-bottom:2px solid #a855f7;padding:8px 20px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+  <div style="display:flex;align-items:center;gap:10px">
+    <span style="background:rgba(168,85,247,.2);border:1px solid #a855f7;border-radius:20px;padding:3px 12px;font-size:11px;font-weight:700;color:#a855f7;letter-spacing:.8px">👁 РЕЖИМ ПРОСМОТРА</span>
+    <span style="font-size:12px;color:var(--muted)">Обновлено: ${pub}</span>
+  </div>
+  <span style="font-size:11px;color:var(--muted)">Редактирование недоступно · Данные предоставлены владельцем</span>
+</div>`;
+}
+
+// Adjust content padding in view mode
+function viewModeStyle(){
+  return _viewMode?'margin-top:44px':'';
+}
+
+// ── Init view mode ──
+async function initViewMode(){
+  if(!_viewMode)return;
+  // Show loading
+  document.getElementById('content').innerHTML=`
+<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:60vh;gap:16px">
+  <div style="font-size:40px">⏳</div>
+  <div style="font-size:16px;font-weight:600;color:var(--text)">Загружаю данные...</div>
+  <div style="font-size:12px;color:var(--muted)">Получаю актуальные данные от владельца</div>
+</div>`;
+  // Add banner
+  document.body.insertAdjacentHTML('afterbegin',viewModeBanner());
+  try{
+    _gistData=await fetchGistData(_gistId);
+    // Hide sidebar edit items
+    document.querySelectorAll('.nav-item[data-p="sales"],[data-p="expenses"],[data-p="batches"],[data-p="settings"]').forEach(el=>{
+      el.style.opacity='0.35';el.style.pointerEvents='none';el.title='Недоступно в режиме просмотра';
+    });
+    render();
+  }catch(e){
+    document.getElementById('content').innerHTML=`
+<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:60vh;gap:16px;padding:40px">
+  <div style="font-size:40px">❌</div>
+  <div style="font-size:16px;font-weight:600;color:var(--danger)">${e.message}</div>
+  <div style="font-size:12px;color:var(--muted);text-align:center">Проверь ссылку или попроси владельца переопубликовать данные</div>
+</div>`;
+  }
+}
+
+// ═══ INIT ═══
+if(!load(K.settings))save(K.settings,{...DEF});
+if(_viewMode){
+  initViewMode();
+}else{
+  render();
+}
+</script>
+</body>
+</html>
