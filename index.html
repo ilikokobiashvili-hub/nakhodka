@@ -1870,7 +1870,14 @@ function impData(input){
   const r=new FileReader();
   r.onload=e=>{try{
     const d=JSON.parse(e.target.result);
-    if(d.settings)save(K.settings,d.settings);
+    if(d.settings){
+      // Preserve GitHub token and gistId from current browser — never overwrite with imported value
+      const cur=cfg();
+      const merged={...d.settings};
+      if(cur.githubToken)merged.githubToken=cur.githubToken;
+      if(cur.gistId)merged.gistId=cur.gistId;
+      save(K.settings,merged);
+    }
     if(d.sales)save(K.sales,d.sales);
     if(d.expenses)save(K.expenses,d.expenses);
     if(d.batches)save(K.batches,d.batches);
