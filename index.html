@@ -210,6 +210,7 @@ body.is-view-mode #gist-pub-btn{display:none!important}
   <div class="nav-sec">
     <div class="nav-lbl">Аналитика</div>
     <div class="nav-item" data-p="pnl"><span class="nav-icon">📈</span>P&L</div>
+    <div class="nav-item" data-p="cogs"><span class="nav-icon">🏷</span>Себестоимость</div>
     <div class="nav-item" data-p="cashflow"><span class="nav-icon">💵</span>Кэш-флоу</div>
     <div class="nav-item" data-p="dynamics"><span class="nav-icon">📅</span>Динамика</div>
     <div class="nav-item" data-p="planfact"><span class="nav-icon">🎯</span>План vs Факт</div>
@@ -218,7 +219,7 @@ body.is-view-mode #gist-pub-btn{display:none!important}
   <div class="nav-sec">
     <div class="nav-item" data-p="settings"><span class="nav-icon">⚙️</span>Настройки</div>
   </div>
-  <div class="sb-foot"><p>Данные хранятся в браузере.<br>Делай бэкап в Настройках.</p></div>
+  <div class="sb-foot"><div id="sb-stats" style="margin-bottom:10px;padding:8px 10px;background:var(--surface2);border-radius:8px;font-size:11px;line-height:1.8;color:var(--muted)">⏳ Загрузка...</div><p>Данные хранятся в браузере.<br>Делай бэкап в Настройках.</p></div>
 </nav>
 
 <main id="content"></main>
@@ -306,7 +307,9 @@ function calcPeriod(f,t){
   const mb=batches().filter(x=>x.date>=f&&x.date<=t);
   const rev=ms.reduce((a,x)=>a+(x.nal||0)+(x.beznal||0),0);
   const opexp=me.filter(x=>x.category!=='Товар/Палеты'&&x.category!=='Доставка').reduce((a,x)=>a+(x.nal||0)+(x.beznal||0),0);
-  const cogs=mb.reduce((a,x)=>a+(x.cost||0)+(x.delivery||0),0);
+  const cogsBD=mb.reduce((a,x)=>a+(x.cost||0)+(x.delivery||0),0);
+  const m2p=calcMethod2Cogs(ms);
+  const cogs=m2p?m2p.totalCogs:cogsBD;
   const exp=opexp+cogs;
   const chk=ms.reduce((a,x)=>a+(x.nalChecks||0)+(x.beznalChecks||0),0);
   const tierQty=ms.reduce((a,x)=>{const ts=tierSums(x);return a+(ts?ts.qty:0)},0);
@@ -318,7 +321,7 @@ function calcPeriod(f,t){
   const cats=priceCats();
   const tierTotals={};cats.forEach(c=>{tierTotals[c.key]={qty:0,rev:0}});
   ms.forEach(x=>{if(x.priceCats)cats.forEach(c=>{if(x.priceCats[c.key]){tierTotals[c.key].qty+=x.priceCats[c.key].qty||0;tierTotals[c.key].rev+=x.priceCats[c.key].rev||0}})});
-  return{rev,exp,opexp,cogs,chk,items,tax,profit:rev-exp-tax,avg,tierTotals};
+  return{rev,exp,opexp,cogs,cogsM2:!!m2p,chk,items,tax,profit:rev-exp-tax,avg,tierTotals};
 }
 
 function calcMonth(){
@@ -353,9 +356,13 @@ function calcPnL(f,t){
   const rn=ms.reduce((a,x)=>a+(x.nal||0),0);
   const rb=ms.reduce((a,x)=>a+(x.beznal||0),0);
   const rev=rn+rb;
+  // Method 2 COGS: based on actual sales × k
+  const m2=calcMethod2Cogs(ms);
   const cb=mb.reduce((a,x)=>a+(x.cost||0),0);
   const cd=mb.reduce((a,x)=>a+(x.delivery||0),0);
-  const cogs=cb+cd;
+  const cogsBatchDate=cb+cd; // legacy: batch purchase date
+  const cogs=m2?m2.totalCogs:cogsBatchDate; // prefer Method 2
+  const cogsMethod=m2?'method2':'batchdate';
   const gp=rev-cogs;
   const bycat={};
   CATS.forEach(c=>{bycat[c]=0});
@@ -364,7 +371,7 @@ function calcPnL(f,t){
   const ebitda=gp-opexp;
   const tax=rev*s.taxRate;
   const net=ebitda-tax;
-  return{rn,rb,rev,cb,cd,cogs,gp,gm:rev>0?gp/rev:0,bycat,opexp,ebitda,em:rev>0?ebitda/rev:0,tax,net,nm:rev>0?net/rev:0};
+  return{rn,rb,rev,cb,cd,cogs,cogsBatchDate,cogsMethod,m2,gp,gm:rev>0?gp/rev:0,bycat,opexp,ebitda,em:rev>0?ebitda/rev:0,tax,net,nm:rev>0?net/rev:0};
 }
 
 function calcDyn(){
@@ -377,7 +384,13 @@ function calcDyn(){
     const rev=ms.reduce((a,x)=>a+(x.nal||0)+(x.beznal||0),0);
     // opex excludes Товар/Палеты and Доставка — tracked via Партии
     const opexp=me.filter(x=>x.category!=='Товар/Палеты'&&x.category!=='Доставка').reduce((a,x)=>a+(x.nal||0)+(x.beznal||0),0);
-    const cogs=mb.reduce((a,x)=>a+(x.cost||0)+(x.delivery||0),0);
+    const cogsBD=mb.reduce((a,x)=>a+(x.cost||0)+(x.delivery||0),0);
+    const m2d=calcMethod2Cogs(ms);
+    const cogs=m2d?m2d.totalCogs:cogsBD;
+    // Tier breakdown for seasonality
+    const cats2=priceCats();
+    const tierMo={};cats2.forEach(c2=>{tierMo[c2.key]={qty:0,rev:0};});
+    ms.forEach(s=>{if(s.priceCats)cats2.forEach(c2=>{if(s.priceCats[c2.key]){tierMo[c2.key].qty+=s.priceCats[c2.key].qty||0;tierMo[c2.key].rev+=s.priceCats[c2.key].rev||0;}});});
     const exp=opexp+cogs;
     const chk=ms.reduce((a,x)=>a+(x.nalChecks||0)+(x.beznalChecks||0),0);
     const tierQty=ms.reduce((a,x)=>{const ts=tierSums(x);return a+(ts?ts.qty:0)},0);
@@ -387,8 +400,110 @@ function calcDyn(){
     const tax=rev*s.taxRate;
     const gp=rev-cogs;
     const net=gp-opexp-tax;
-    return{ym,rev,exp,opexp,cogs,gp,tax,net,chk,items,avg};
+    return{ym,rev,exp,opexp,cogs,gp,tax,net,chk,items,avg,tierMo};
   });
+}
+
+
+// ═══ METHOD 2 COGS HELPER ═══
+// Calculates COGS from actual sales using k from all batches with cogsItems
+// Returns null if no data, else {k, totalCogs, totalRevSold, cogsByTier, tierRows}
+function calcMethod2Cogs(salesList){
+  const bb=batches().filter(x=>x.cogsItems&&x.cogsItems.length>0);
+  if(!bb.length)return null;
+  let totalInvested=0,totalPotRev=0;
+  bb.forEach(b=>{
+    totalInvested+=(b.cost||0)+(b.delivery||0);
+    b.cogsItems.forEach(ci=>{totalPotRev+=(ci.qty||0)*(ci.price||0);});
+  });
+  if(!totalPotRev)return null;
+  const k=totalInvested/totalPotRev;
+  const cats=priceCats();
+  const cogsByTier={};
+  cats.forEach(c=>{cogsByTier[c.key]={key:c.key,label:c.label,price:c.price,qty:0,rev:0,cogs:0,profit:0};});
+  let totalCogs=0,totalRevSold=0;
+  (salesList||[]).forEach(s=>{
+    const sRev=(s.nal||0)+(s.beznal||0);
+    if(s.priceCats){
+      cats.forEach(c=>{
+        if(!s.priceCats[c.key])return;
+        const qty=s.priceCats[c.key].qty||0;
+        const rev=s.priceCats[c.key].rev||(qty*c.price);
+        const cogs=rev*k;
+        cogsByTier[c.key].qty+=qty;
+        cogsByTier[c.key].rev+=rev;
+        cogsByTier[c.key].cogs+=cogs;
+        cogsByTier[c.key].profit+=(rev-cogs);
+        totalCogs+=cogs;totalRevSold+=rev;
+      });
+    } else {
+      // No tier data — attribute COGS proportionally to total revenue
+      const revCogs=sRev*k;
+      totalCogs+=revCogs;totalRevSold+=sRev;
+    }
+  });
+  return{k,totalCogs,totalRevSold,cogsByTier,tierRows:Object.values(cogsByTier).filter(c=>c.qty>0)};
+}
+
+// ═══ SELL-THROUGH HELPER ═══
+function calcSellThrough(){
+  const bb=batches();
+  const ss=sales();
+  const cats=priceCats();
+  // Purchased per tier from cogsItems
+  const purchased={};cats.forEach(c=>{purchased[c.key]=0;});
+  bb.forEach(b=>{if(b.cogsItems)b.cogsItems.forEach(ci=>{purchased[ci.key]=(purchased[ci.key]||0)+(ci.qty||0);});});
+  // Written-off per tier
+  const writtenOff={};cats.forEach(c=>{writtenOff[c.key]=0;});
+  bb.forEach(b=>{if(b.writeoffs)b.writeoffs.forEach(w=>{writtenOff[w.key]=(writtenOff[w.key]||0)+(w.qty||0);});});
+  // Sold per tier
+  const sold={};cats.forEach(c=>{sold[c.key]=0;});
+  ss.forEach(s=>{if(!s.priceCats)return;cats.forEach(c=>{if(s.priceCats[c.key])sold[c.key]+=(s.priceCats[c.key].qty||0);});});
+  const totalPurchasedTier=Object.values(purchased).reduce((a,v)=>a+v,0);
+  const totalBatchUnits=bb.reduce((a,b)=>a+(b.units||0),0);
+  const totalSoldTier=Object.values(sold).reduce((a,v)=>a+v,0);
+  const totalWrittenOff=Object.values(writtenOff).reduce((a,v)=>a+v,0);
+  const totalUnits=totalPurchasedTier>0?totalPurchasedTier:totalBatchUnits;
+  const remaining=Math.max(0,totalUnits-totalSoldTier-totalWrittenOff);
+  // Daily avg sold (last 30 days)
+  const t30=new Date(Date.now()-30*864e5).toISOString().slice(0,10);
+  const recent=ss.filter(s=>s.date>=t30);
+  const recentQty=recent.reduce((a,s)=>{const ts=tierSums(s);return a+(ts?ts.qty:(s.nalChecks||0)+(s.beznalChecks||0));},0);
+  const dailyAvg=recentQty/30;
+  const daysLeft=dailyAvg>0?remaining/dailyAvg:null;
+  // Frozen capital in remaining stock
+  const m2=calcMethod2Cogs([]);
+  const k=m2?m2.k:0;
+  const avgPricePerUnit=totalUnits>0?(()=>{let s=0;cats.forEach(c=>{s+=purchased[c.key]*c.price;});return s/totalUnits;})():0;
+  const frozenCapital=remaining*avgPricePerUnit*k;
+  return{totalUnits,totalSoldTier,totalWrittenOff,remaining,
+    sellPct:totalUnits>0?totalSoldTier/totalUnits:0,
+    dailyAvg,daysLeft,frozenCapital,purchased,sold,writtenOff,cats};
+}
+
+// ═══ ABC ANALYSIS HELPER ═══
+function calcABC(salesList){
+  const cats=priceCats();
+  const tierData={};
+  cats.forEach((c,i)=>{tierData[c.key]={key:c.key,label:c.label,price:c.price,idx:i,qty:0,rev:0,profit:0};});
+  const m2=calcMethod2Cogs(salesList);
+  const k=m2?m2.k:0;
+  (salesList||[]).forEach(s=>{
+    if(!s.priceCats)return;
+    cats.forEach(c=>{
+      if(!s.priceCats[c.key])return;
+      const qty=s.priceCats[c.key].qty||0;
+      const rev=s.priceCats[c.key].rev||(qty*c.price);
+      tierData[c.key].qty+=qty;
+      tierData[c.key].rev+=rev;
+      tierData[c.key].profit+=rev*(1-k);
+    });
+  });
+  const rows=Object.values(tierData).filter(d=>d.qty>0).sort((a,b)=>b.rev-a.rev);
+  const totalRev=rows.reduce((a,r)=>a+r.rev,0);
+  let cumRev=0;
+  rows.forEach(r=>{cumRev+=r.rev;r.cumRevPct=totalRev>0?cumRev/totalRev:0;r.revPct=totalRev>0?r.rev/totalRev:0;r.abc=r.cumRevPct<=0.8?'A':r.cumRevPct<=0.95?'B':'C';});
+  return rows;
 }
 
 // ═══ NAV ═══
@@ -436,10 +551,11 @@ function dashRange(){
 
 function render(){
   const c=document.getElementById('content');
-  const pages={dashboard:rDash,sales:rSales,expenses:rExp,batches:rBatch,pnl:rPnL,cashflow:rCash,dynamics:rDyn,planfact:rPF,planning:rPlanning,settings:rSet};
+  const pages={dashboard:rDash,sales:rSales,expenses:rExp,batches:rBatch,pnl:rPnL,cogs:rCogsPage,cashflow:rCash,dynamics:rDyn,planfact:rPF,planning:rPlanning,settings:rSet};
   c.innerHTML=(pages[page]||rDash)();
   const s=cfg();
   document.getElementById('sb-sub').textContent=s.storeName||'Розница · Секонд-хенд';
+  updateSbStats();
 }
 
 // ─── DASHBOARD ───
@@ -479,7 +595,7 @@ function rDash(){
 <div class="kpi-grid">
   <div class="kpi"><div class="kpi-lbl">Выручка</div><div class="kpi-val accent">${fr(cm.rev)}</div></div>
   <div class="kpi"><div class="kpi-lbl">Расходы опер.</div><div class="kpi-val">${fr(cm.opexp)}</div></div>
-  <div class="kpi"><div class="kpi-lbl">Себест. (партии)</div><div class="kpi-val">${fr(cm.cogs)}</div></div>
+  <div class="kpi"><div class="kpi-lbl">Себест. ${cm.cogsM2?'(Метод 2)':'(партии)'}</div><div class="kpi-val">${fr(cm.cogs)}</div></div>
   <div class="kpi"><div class="kpi-lbl">Чистая прибыль</div><div class="kpi-val ${cm.profit>=0?'ok':'bad'}">${fr(cm.profit)}</div></div>
   <div class="kpi"><div class="kpi-lbl">Налог АУСН ${(s.taxRate*100).toFixed(0)}%</div><div class="kpi-val">${fr(cm.tax)}</div></div>
   <div class="kpi"><div class="kpi-lbl">Остаток НАЛ</div><div class="kpi-val ${bal.c>=0?'':'bad'}">${fr(bal.c)}</div></div>
@@ -672,24 +788,71 @@ function rBatch(){
   const fndBatches=bb.filter(x=>x.fundSource==='founder');
   const bizTotal=bizBatches.reduce((a,x)=>a+(x.cost||0)+(x.delivery||0),0);
   const fndTotal=fndBatches.reduce((a,x)=>a+(x.cost||0)+(x.delivery||0),0);
+  const st=calcSellThrough();
+  const sellPct=Math.round(st.sellPct*100);
+  const barColor=sellPct>=80?'var(--success)':sellPct>=40?'var(--warning)':'var(--danger)';
+  const daysStr=st.daysLeft?`~${Math.round(st.daysLeft)} дней`:'нет данных';
+  // Reorder alert: if < 14 days of stock left or remaining < 50 units
+  const needReorder=st.daysLeft!==null&&st.daysLeft<14||st.remaining<50;
   return`
-<div class="page-hdr"><div><div class="page-title">Партии</div><div class="page-sub">Учёт закупок палет · Себестоимость Метод 2</div></div>
+<div class="page-hdr"><div><div class="page-title">Партии</div><div class="page-sub">Учёт закупок палет · Себестоимость Метод 2 · Выкуп ${sellPct}%</div></div>
 <button class="btn btn-p" onclick="oAddBatch()">+ Добавить</button></div>
 
-<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;max-width:500px;margin-bottom:20px">
+${needReorder&&bb.length>0?`<div style="background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.4);border-radius:10px;padding:14px 18px;margin-bottom:16px;display:flex;align-items:center;gap:14px">
+  <span style="font-size:26px">🚨</span>
+  <div style="flex:1">
+    <div style="font-weight:700;color:var(--danger);font-size:13px;margin-bottom:2px">Пора закупить новую партию!</div>
+    <div style="font-size:12px;color:var(--muted)">Остаток: <b style="color:var(--text)">${fn(st.remaining)} шт</b> · при темпе ${st.dailyAvg.toFixed(1)} шт/день распродастся через <b style="color:var(--warning)">${daysStr}</b></div>
+  </div>
+  <button class="btn btn-p btn-sm" onclick="oAddBatch()">+ Новая партия</button>
+</div>`:''}
+
+<div class="kpi-grid">
   <div class="kpi"><div class="kpi-lbl">💼 Из оборотного капитала</div><div class="kpi-val bad">${fr(bizTotal)}</div></div>
   <div class="kpi" style="border-color:rgba(168,85,247,.4)"><div class="kpi-lbl">🙋 Вложено основателем</div><div class="kpi-val" style="color:#a855f7">${fr(fndTotal)}</div></div>
+  ${st.totalUnits>0?`
+  <div class="kpi"><div class="kpi-lbl">Закуплено всего</div><div class="kpi-val">${fn(st.totalUnits)} шт</div></div>
+  <div class="kpi"><div class="kpi-lbl">Продано (тиры)</div><div class="kpi-val ok">${fn(st.totalSoldTier)} шт</div></div>
+  <div class="kpi"><div class="kpi-lbl">Остаток</div><div class="kpi-val ${st.remaining<100?'bad':''}">${fn(st.remaining)} шт</div></div>
+  <div class="kpi"><div class="kpi-lbl">Замороженный капитал</div><div class="kpi-val" style="color:var(--warning)">${fr(st.frozenCapital)}</div></div>`:''}
 </div>
+
+${st.totalUnits>0?`<div class="card" style="margin-bottom:16px">
+  <div class="card-hdr"><h3>📊 Выкуп партий — общий статус</h3><span style="font-size:12px;color:var(--muted)">Распродастся через ${daysStr} при темпе ${st.dailyAvg.toFixed(1)} шт/день</span></div>
+  <div style="padding:16px 18px">
+    <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:6px">
+      <span style="font-weight:700;font-size:16px;color:${barColor}">${sellPct}% продано</span>
+      <span style="color:var(--muted)">${fn(st.totalSoldTier)} из ${fn(st.totalUnits)} шт${st.totalWrittenOff>0?` · списано ${fn(st.totalWrittenOff)} шт`:''}</span>
+    </div>
+    <div style="background:var(--surface2);border-radius:6px;height:12px;overflow:hidden;margin-bottom:12px">
+      <div style="width:${sellPct}%;height:12px;background:${barColor};border-radius:6px;transition:width .5s"></div>
+    </div>
+    <div style="display:flex;flex-wrap:wrap;gap:8px">
+    ${st.cats.filter(c=>st.purchased[c.key]>0).map((c,i)=>{
+      const soldQ=st.sold[c.key]||0;const totQ=st.purchased[c.key];const pct=totQ>0?Math.round(soldQ/totQ*100):0;
+      const color=TIER_COLORS[i%TIER_COLORS.length];
+      return`<div style="background:${color}12;border:1px solid ${color}33;border-radius:8px;padding:8px 12px;min-width:80px;text-align:center">
+        <div style="font-size:11px;font-weight:700;color:${color}">${c.label}</div>
+        <div style="font-size:10px;color:var(--muted);margin:2px 0">${soldQ}/${totQ} шт</div>
+        <div style="font-size:13px;font-weight:700;color:${pct>=80?'var(--success)':pct>=40?'var(--warning)':'var(--danger)'}">${pct}%</div>
+      </div>`;
+    }).join('')}
+    </div>
+  </div>
+</div>`:''}
 
 <div class="card">
   ${bb.length===0?'<div class="empty">Нет записей. Нажмите «+ Добавить»</div>':`
-  <div class="tbl-wrap"><table><thead><tr><th>Дата</th><th>№</th><th>Тип</th><th class="r">Палет</th><th class="r">Стоим.</th><th class="r">Доставка</th><th class="r">Итого</th><th class="r">Единиц</th><th class="r">Себест./шт (общая)</th><th>Источник</th><th>Оплата</th><th class="sticky-r"></th></tr></thead>
+  <div class="tbl-wrap"><table><thead><tr><th>Дата</th><th>№</th><th>Тип</th><th class="r">Палет</th><th class="r">Стоим.</th><th class="r">Доставка</th><th class="r">Итого</th><th class="r">Единиц</th><th class="r">Себест./шт</th><th>Источник</th><th>Оплата</th><th class="sticky-r"></th></tr></thead>
   <tbody>${bb.map(x=>{
     const t=(x.cost||0)+(x.delivery||0),cpu=x.units>0?t/x.units:0;
     const isFounder=x.fundSource==='founder';
     const hasCogs=x.cogsItems&&x.cogsItems.length>0;
+    const hasWriteoffs=x.writeoffs&&x.writeoffs.length>0;
+    const ageDays=Math.round((Date.now()-new Date(x.date+'T00:00:00'))/864e5);
     return`<tr>
-    <td>${fd(x.date)}</td><td style="font-weight:600">${x.batchNum||'—'}</td><td>${x.paletType||'—'}</td>
+    <td>${fd(x.date)}<br><span style="font-size:10px;color:var(--muted)">${ageDays}д назад</span></td>
+    <td style="font-weight:600">${x.batchNum||'—'}</td><td>${x.paletType||'—'}</td>
     <td class="r">${x.paletCount||'—'}</td><td class="r">${fr(x.cost)}</td>
     <td class="r dim">${x.delivery?fr(x.delivery):'—'}</td>
     <td class="r bad">${fr(t)}</td><td class="r">${x.units||'—'}</td>
@@ -697,20 +860,276 @@ function rBatch(){
     <td><span class="badge" style="${isFounder?'background:rgba(168,85,247,.15);color:#a855f7':'background:rgba(120,120,120,.1);color:var(--muted)'}">${isFounder?'🙋 Осн.':'💼 Бизнес'}</span></td>
     <td><span class="badge ${x.payType==='безнал'?'b-info':'b-dim'}">${x.payType||'нал'}</span></td>
     <td class="sticky-r"><div class="row-acts"><button class="btn-e" onclick="oEditBatch('${x.id}')">✏️</button><button class="btn-d" onclick="delBatch('${x.id}')">✕</button></div></td></tr>
-    ${hasCogs?`<tr style="background:rgba(249,115,22,.04)"><td colspan="12" style="padding:8px 14px 10px 28px">
+    ${hasCogs?`<tr style="background:rgba(249,115,22,.04)"><td colspan="12" style="padding:6px 14px 8px 28px">
       <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center">
-        <span style="font-size:10px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:.8px;margin-right:4px">📊 Себест. по кат. (Метод 2):</span>
-        ${x.cogsItems.map((c,i)=>{
-          const color=TIER_COLORS[i%TIER_COLORS.length];
-          return`<span style="background:${color}18;border:1px solid ${color}44;border-radius:6px;padding:3px 9px;font-size:11px;font-weight:700;color:${color};white-space:nowrap">
-            ${c.label}: <span style="font-family:'JetBrains Mono',monospace">${c.unitCogs.toLocaleString('ru-RU')}₽</span>
-            <span style="color:${c.margin>0.5?'#22c55e':c.margin>0.2?'#eab308':'#ef4444'};margin-left:3px">${(c.margin*100).toFixed(0)}%</span>
-          </span>`;
-        }).join('')}
+        <span style="font-size:10px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:.8px;margin-right:4px">📊 Метод 2:</span>
+        ${x.cogsItems.map((ci,i)=>{const color=TIER_COLORS[i%TIER_COLORS.length];return`<span style="background:${color}18;border:1px solid ${color}44;border-radius:6px;padding:2px 8px;font-size:11px;font-weight:700;color:${color};white-space:nowrap">${ci.label}: ${ci.unitCogs.toLocaleString('ru-RU')}₽ <span style="color:${ci.margin>0.5?'#22c55e':ci.margin>0.2?'#eab308':'#ef4444'}">${(ci.margin*100).toFixed(0)}%</span></span>`;}).join('')}
+      </div>
+    </td></tr>`:''}
+    ${hasWriteoffs?`<tr style="background:rgba(239,68,68,.03)"><td colspan="12" style="padding:4px 14px 6px 28px">
+      <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center">
+        <span style="font-size:10px;font-weight:700;color:var(--danger);text-transform:uppercase;letter-spacing:.8px;margin-right:4px">🗑 Списано:</span>
+        ${x.writeoffs.map(w=>`<span style="background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.3);border-radius:6px;padding:2px 8px;font-size:11px;font-weight:700;color:var(--danger);white-space:nowrap">${w.label}: ${w.qty}шт${w.reason?' · '+w.reason:''}</span>`).join('')}
       </div>
     </td></tr>`:''}`;
   }).join('')}
   </tbody></table></div>`}
+</div>`;
+}
+
+// ─── COGS METHOD 2 ANALYTICS PAGE ───
+function rCogsPage(){
+  const bb=batches();
+  const cogsBatches=bb.filter(x=>x.cogsItems&&x.cogsItems.length>0).sort((a,b)=>b.date.localeCompare(a.date));
+  const cats=priceCats();
+  const allSales=sales();
+
+  if(cogsBatches.length===0){
+    return`<div class="page-hdr"><div><div class="page-title">Себестоимость — Метод 2</div><div class="page-sub">Распределение затрат пропорционально продажной цене</div></div></div>
+<div class="card"><div class="empty" style="padding:60px 40px">
+  <div style="font-size:40px;margin-bottom:12px">🏷</div>
+  <div style="font-size:15px;font-weight:600;margin-bottom:8px">Нет партий с расчётом Метод 2</div>
+  <div style="font-size:12px;color:var(--muted);line-height:1.7">Открой раздел <b style="color:var(--accent)">Партии</b> → добавь или отредактируй партию →<br>заполни раздел «📊 Себестоимость по категориям»</div>
+</div></div>`;
+  }
+
+  // ── Aggregate across all batches with cogsItems ──
+  let totalInvested=0,totalPotRev=0;
+  const aggCats={};
+  cats.forEach(c=>{aggCats[c.key]={key:c.key,label:c.label,price:c.price,qty:0,totalCogs:0,totalRev:0}});
+
+  cogsBatches.forEach(b=>{
+    const bCost=(b.cost||0)+(b.delivery||0);
+    totalInvested+=bCost;
+    b.cogsItems.forEach(ci=>{
+      const potRev=(ci.qty||0)*(ci.price||0);
+      totalPotRev+=potRev;
+      if(!aggCats[ci.key])aggCats[ci.key]={key:ci.key,label:ci.label,price:ci.price,qty:0,totalCogs:0,totalRev:0};
+      aggCats[ci.key].qty+=ci.qty||0;
+      aggCats[ci.key].totalCogs+=(ci.totalCogs||(ci.unitCogs*(ci.qty||0)))||0;
+      aggCats[ci.key].totalRev+=potRev;
+    });
+  });
+
+  const k=totalPotRev>0?totalInvested/totalPotRev:0;
+  const totalPotProfit=totalPotRev-totalInvested;
+
+  // ── Actual sales by tier ──
+  const salesTiers={};
+  cats.forEach(c=>{salesTiers[c.key]={qty:0,rev:0}});
+  allSales.forEach(s=>{
+    if(s.priceCats)cats.forEach(c=>{
+      if(s.priceCats[c.key]){salesTiers[c.key].qty+=s.priceCats[c.key].qty||0;salesTiers[c.key].rev+=s.priceCats[c.key].rev||0;}
+    });
+  });
+  const totalSoldQty=Object.values(salesTiers).reduce((a,v)=>a+v.qty,0);
+  const totalSoldRev=Object.values(salesTiers).reduce((a,v)=>a+v.rev,0);
+  const estimatedCOGS=totalSoldRev*k;
+  const estimatedGP=totalSoldRev-estimatedCOGS;
+
+  const aggRows=Object.values(aggCats).filter(c=>c.qty>0);
+
+  return`
+<div class="page-hdr">
+  <div>
+    <div class="page-title">Себестоимость — Метод 2</div>
+    <div class="page-sub">Распределение затрат пропорционально продажной цене · ${cogsBatches.length} партий с данными</div>
+  </div>
+</div>
+
+<div class="kpi-grid">
+  <div class="kpi"><div class="kpi-lbl">Вложено в товар</div><div class="kpi-val bad">${fr(totalInvested)}</div></div>
+  <div class="kpi"><div class="kpi-lbl">Потенц. выручка</div><div class="kpi-val accent">${fr(totalPotRev)}</div></div>
+  <div class="kpi"><div class="kpi-lbl">Потенц. прибыль</div><div class="kpi-val ${totalPotProfit>=0?'ok':'bad'}">${fr(totalPotProfit)}</div></div>
+  <div class="kpi"><div class="kpi-lbl">Коэф. себестоимости k</div><div class="kpi-val" style="font-size:20px;letter-spacing:1px">${k.toFixed(4)}</div></div>
+  ${totalSoldQty>0?`
+  <div class="kpi"><div class="kpi-lbl">Фактически продано</div><div class="kpi-val">${fn(totalSoldQty)} шт</div></div>
+  <div class="kpi"><div class="kpi-lbl">Факт. выручка</div><div class="kpi-val ok">${fr(totalSoldRev)}</div></div>
+  <div class="kpi"><div class="kpi-lbl">Оценочная себест. продаж</div><div class="kpi-val bad">${fr(estimatedCOGS)}</div></div>
+  <div class="kpi"><div class="kpi-lbl">Оценочная вал. прибыль</div><div class="kpi-val ${estimatedGP>=0?'ok':'bad'}">${fr(estimatedGP)}</div></div>`:''}
+</div>
+
+<div style="background:rgba(249,115,22,.07);border:1px solid rgba(249,115,22,.25);border-radius:10px;padding:12px 18px;margin-bottom:20px;font-size:12px;color:var(--muted);line-height:1.8">
+  <b style="color:var(--accent)">Логика Метода 2:</b> Дорогие вещи «забирают» больше из себестоимости партии — пропорционально своей цене.<br>
+  Формула: <span style="font-family:'JetBrains Mono',monospace;color:var(--text)">Себест./шт = Цена × k</span>, где
+  <span style="font-family:'JetBrains Mono',monospace;color:var(--accent)">k = ${fr(totalInvested)} / ${fr(totalPotRev)} = ${k.toFixed(4)}</span> — доля вложений от выручки.
+  Маржа одинакова для всех категорий: <b style="color:var(--success)">${((1-k)*100).toFixed(1)}%</b>
+</div>
+
+<!-- TABLE -->
+<div class="card" style="margin-bottom:20px">
+  <div class="card-hdr"><h3>📊 Себестоимость и маржа по категориям</h3></div>
+  <div class="tbl-wrap"><table>
+    <thead><tr>
+      <th>Категория</th><th class="r">Цена</th><th class="r">Штук в партиях</th>
+      <th class="r">Себест./шт</th><th class="r">Маржа/шт</th><th class="r">Маржа %</th>
+      <th class="r">Себест. всего</th><th class="r">Потенц. выручка</th><th class="r">Потенц. прибыль</th>
+    </tr></thead>
+    <tbody>
+    ${aggRows.map((c,i)=>{
+      const unitCogs=c.price*k;
+      const margin1=c.price-unitCogs;
+      const marginPct=c.price>0?margin1/c.price:0;
+      const totalCogs=unitCogs*c.qty;
+      const profitAll=margin1*c.qty;
+      const cidx=cats.findIndex(t=>t.key===c.key);
+      const color=TIER_COLORS[(cidx>=0?cidx:i)%TIER_COLORS.length];
+      return`<tr>
+        <td><span style="font-weight:700;color:${color}">${c.label}</span><br><span style="font-size:10px;color:var(--muted)">${c.price.toLocaleString('ru-RU')} ₽/шт</span></td>
+        <td class="r" style="font-family:'JetBrains Mono',monospace">${c.price.toLocaleString('ru-RU')} ₽</td>
+        <td class="r">${fn(c.qty)} шт</td>
+        <td class="r" style="font-family:'JetBrains Mono',monospace">${fr(unitCogs)}</td>
+        <td class="r ok" style="font-family:'JetBrains Mono',monospace">+${fr(margin1)}</td>
+        <td class="r"><span style="font-weight:700;color:${marginPct>0.5?'var(--success)':marginPct>0.2?'var(--warning)':'var(--danger)'}">${(marginPct*100).toFixed(0)}%</span></td>
+        <td class="r dim" style="font-family:'JetBrains Mono',monospace">${fr(totalCogs)}</td>
+        <td class="r" style="font-family:'JetBrains Mono',monospace;color:var(--accent)">${fr(c.totalRev)}</td>
+        <td class="r ok" style="font-family:'JetBrains Mono',monospace;font-weight:700">+${fr(profitAll)}</td>
+      </tr>`;
+    }).join('')}
+    </tbody>
+    <tfoot><tr>
+      <td style="font-weight:700">Итого</td><td class="r">—</td>
+      <td class="r" style="font-weight:700">${fn(aggRows.reduce((a,c)=>a+c.qty,0))} шт</td>
+      <td class="r">—</td><td class="r">—</td><td class="r">—</td>
+      <td class="r bad" style="font-weight:700">${fr(totalInvested)}</td>
+      <td class="r accent" style="font-weight:700">${fr(totalPotRev)}</td>
+      <td class="r ok" style="font-weight:700">+${fr(totalPotProfit)}</td>
+    </tr></tfoot>
+  </table></div>
+</div>
+
+<!-- VISUAL BARS -->
+<div class="card" style="margin-bottom:20px">
+  <div class="card-hdr"><h3>📈 Доля маржи в выручке по категории</h3><span style="font-size:12px;color:var(--muted)">Маржа одинакова — разница в абсолютных рублях</span></div>
+  <div style="padding:16px 18px">
+  ${aggRows.map((c,i)=>{
+    const unitCogs=c.price*k;
+    const margin1=c.price-unitCogs;
+    const marginPct=c.price>0?Math.round(margin1/c.price*100):0;
+    const cidx=cats.findIndex(t=>t.key===c.key);
+    const color=TIER_COLORS[(cidx>=0?cidx:i)%TIER_COLORS.length];
+    return`<div style="display:flex;align-items:center;gap:14px;margin-bottom:14px">
+      <div style="min-width:90px;max-width:90px">
+        <div style="font-size:13px;font-weight:700;color:${color}">${c.label}</div>
+        <div style="font-size:10px;color:var(--muted)">${c.price.toLocaleString('ru-RU')} ₽</div>
+      </div>
+      <div style="flex:1">
+        <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-bottom:4px">
+          <span>себест. ${fr(unitCogs)}</span>
+          <span class="ok" style="font-weight:600">маржа +${fr(margin1)} (${marginPct}%)</span>
+        </div>
+        <div style="background:var(--surface2);border-radius:4px;height:8px;width:100%;overflow:hidden">
+          <div style="width:${marginPct}%;height:8px;border-radius:4px;background:${color}"></div>
+        </div>
+      </div>
+    </div>`;
+  }).join('')}
+  </div>
+</div>
+
+<!-- ABC ANALYSIS -->
+${(()=>{
+  const abcRows=calcABC(allSales);
+  if(!abcRows.length)return'';
+  const totalRevABC=abcRows.reduce((a,r)=>a+r.rev,0);
+  return`<div class="card" style="margin-bottom:20px">
+  <div class="card-hdr"><h3>🎯 ABC-анализ ценовых категорий</h3><span style="font-size:12px;color:var(--muted)">A = 80% выручки · B = следующие 15% · C = остальное</span></div>
+  <div class="tbl-wrap"><table>
+    <thead><tr><th>Категория</th><th class="r">Продано шт</th><th class="r">Выручка</th><th class="r">Доля выручки</th><th class="r">Нарастающий итог</th><th class="r">Прибыль</th><th class="r">Класс ABC</th><th>Рекомендация</th></tr></thead>
+    <tbody>${abcRows.map((r,i)=>{
+      const color=TIER_COLORS[r.idx%TIER_COLORS.length];
+      const abcColor=r.abc==='A'?'var(--success)':r.abc==='B'?'var(--warning)':'var(--muted)';
+      const rec=r.abc==='A'?'Приоритет! Закупай больше.':r.abc==='B'?'Хорошая категория.':'Рассмотри снижение закупки.';
+      return`<tr>
+        <td><span style="font-weight:700;color:${color}">${r.label}</span><br><span style="font-size:10px;color:var(--muted)">${r.price.toLocaleString('ru-RU')} ₽/шт</span></td>
+        <td class="r">${fn(r.qty)}</td>
+        <td class="r" style="color:var(--accent)">${fr(r.rev)}</td>
+        <td class="r">
+          <div style="display:flex;align-items:center;gap:6px;justify-content:flex-end">
+            <div style="background:var(--surface2);border-radius:3px;height:6px;width:60px;overflow:hidden">
+              <div style="width:${(r.revPct*100).toFixed(0)}%;height:6px;background:${color}"></div>
+            </div>
+            <span style="font-weight:700">${(r.revPct*100).toFixed(1)}%</span>
+          </div>
+        </td>
+        <td class="r dim">${(r.cumRevPct*100).toFixed(1)}%</td>
+        <td class="r ok">${fr(r.profit)}</td>
+        <td class="r"><span class="badge" style="background:${abcColor}22;color:${abcColor};font-size:13px;font-weight:900">${r.abc}</span></td>
+        <td style="font-size:11px;color:var(--muted);white-space:normal;max-width:150px">${rec}</td>
+      </tr>`;
+    }).join('')}
+    </tbody>
+  </table></div>
+</div>`;
+})()}
+
+<!-- ROI PER BATCH -->
+${cogsBatches.length>0?`<div class="card" style="margin-bottom:20px">
+  <div class="card-hdr"><h3>📈 ROI по партиям</h3><span style="font-size:12px;color:var(--muted)">Эффективность каждой закупки</span></div>
+  <div class="tbl-wrap"><table>
+    <thead><tr><th>Партия</th><th class="r">Дата</th><th class="r">Вложено</th><th class="r">Потенц. выручка</th><th class="r">Потенц. прибыль</th><th class="r">ROI потенц.</th><th class="r">Единиц</th><th class="r">Себест./шт min→max</th></tr></thead>
+    <tbody>${[...cogsBatches].sort((a,b)=>{
+      const roiA=((b.cogsItems.reduce((s,c)=>s+c.qty*c.price,0)-((b.cost||0)+(b.delivery||0)))/Math.max((b.cost||0)+(b.delivery||0),1));
+      const roiB=((a.cogsItems.reduce((s,c)=>s+c.qty*c.price,0)-((a.cost||0)+(a.delivery||0)))/Math.max((a.cost||0)+(a.delivery||0),1));
+      return roiA-roiB;
+    }).map(b=>{
+      const bCost=(b.cost||0)+(b.delivery||0);
+      const bPotRev=b.cogsItems.reduce((a,c)=>a+(c.qty||0)*(c.price||0),0);
+      const bProfit=bPotRev-bCost;
+      const roi=bCost>0?bProfit/bCost:0;
+      const totalUnitsB=b.cogsItems.reduce((a,c)=>a+(c.qty||0),0);
+      const minCpu=Math.min(...b.cogsItems.map(c=>c.unitCogs));
+      const maxCpu=Math.max(...b.cogsItems.map(c=>c.unitCogs));
+      const roiColor=roi>=1?'var(--success)':roi>=0.5?'var(--warning)':'var(--danger)';
+      return`<tr>
+        <td style="font-weight:700;color:var(--accent)">${b.batchNum||'—'}</td>
+        <td class="r dim">${fd(b.date)}</td>
+        <td class="r bad">${fr(bCost)}</td>
+        <td class="r" style="color:var(--accent)">${fr(bPotRev)}</td>
+        <td class="r ${bProfit>=0?'ok':'bad'}">${fr(bProfit)}</td>
+        <td class="r" style="font-weight:700;color:${roiColor}">${(roi*100).toFixed(0)}%</td>
+        <td class="r">${fn(totalUnitsB)} шт</td>
+        <td class="r dim" style="font-size:11px">${fr(minCpu)} → ${fr(maxCpu)}</td>
+      </tr>`;
+    }).join('')}
+    </tbody>
+  </table></div>
+</div>`:''}
+
+<!-- PER BATCH -->
+<div class="card">
+  <div class="card-hdr"><h3>📦 Разбивка по партиям</h3><span style="font-size:12px;color:var(--muted)">${cogsBatches.length} партий с данными Метод 2</span></div>
+  ${cogsBatches.map((b,bi)=>{
+    const bCost=(b.cost||0)+(b.delivery||0);
+    const bPotRev=b.cogsItems.reduce((a,c)=>a+(c.qty||0)*(c.price||0),0);
+    const bK=bPotRev>0?bCost/bPotRev:0;
+    const bPotProfit=bPotRev-bCost;
+    return`<div style="padding:14px 18px;border-bottom:1px solid var(--border)">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px;margin-bottom:10px">
+        <div>
+          <span style="font-weight:700;font-size:14px;color:var(--accent)">${b.batchNum||'—'}</span>
+          <span style="color:var(--muted);font-size:12px;margin-left:8px">${fd(b.date)}</span>
+          ${b.paletType?`<span style="color:var(--muted);font-size:11px;margin-left:6px">· ${b.paletType}</span>`:''}
+        </div>
+        <div style="display:flex;gap:14px;font-size:12px">
+          <span style="color:var(--muted)">вложено: <b class="bad">${fr(bCost)}</b></span>
+          <span style="color:var(--muted)">потенц.: <b style="color:var(--accent)">${fr(bPotRev)}</b></span>
+          <span style="color:var(--muted)">k=<b style="font-family:'JetBrains Mono',monospace">${bK.toFixed(4)}</b></span>
+          <span style="color:var(--muted)">прибыль: <b class="${bPotProfit>=0?'ok':'bad'}">${fr(bPotProfit)}</b></span>
+        </div>
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px">
+        ${b.cogsItems.map((ci,i)=>{
+          const color=TIER_COLORS[i%TIER_COLORS.length];
+          const mc=ci.margin>0.5?'var(--success)':ci.margin>0.2?'var(--warning)':'var(--danger)';
+          return`<span style="background:${color}18;border:1px solid ${color}44;border-radius:6px;padding:4px 10px;font-size:11px;font-weight:700;color:${color};white-space:nowrap">
+            ${ci.label}: <span style="font-family:'JetBrains Mono',monospace">${ci.qty}шт · ${ci.unitCogs.toLocaleString('ru-RU')}₽</span>
+            <span style="color:${mc};margin-left:2px">${(ci.margin*100).toFixed(0)}%</span>
+          </span>`;
+        }).join('')}
+      </div>
+    </div>`;
+  }).join('')}
 </div>`;
 }
 
@@ -770,23 +1189,30 @@ ${inv.length>1?`
 function rPnL(){
   const p=calcPnL(pnlF,pnlT);
   const opItems=Object.entries(p.bycat).filter(([k])=>k!=='Товар/Палеты'&&k!=='Доставка'&&p.bycat[k]>0);
+  const isM2=p.cogsMethod==='method2';
   return`
-<div class="page-hdr"><div><div class="page-title">P&L — Прибыли и убытки</div><div class="page-sub">Отчёт за выбранный период</div></div></div>
+<div class="page-hdr"><div><div class="page-title">P&L — Прибыли и убытки</div><div class="page-sub">Отчёт за выбранный период${isM2?' · Себестоимость по Методу 2':''}</div></div></div>
 <div class="fbar">
   <label>С:</label>
   <input type="date" value="${pnlF}" style="width:155px" onchange="pnlF=this.value;render()">
   <label>По:</label>
   <input type="date" value="${pnlT}" style="width:155px" onchange="pnlT=this.value;render()">
 </div>
+${isM2?`<div style="background:rgba(34,197,94,.07);border:1px solid rgba(34,197,94,.25);border-radius:10px;padding:11px 18px;margin-bottom:16px;font-size:12px;color:var(--muted);display:flex;align-items:center;gap:10px">
+  <span style="font-size:18px">✅</span>
+  <div><b style="color:var(--success)">Себестоимость рассчитана по Методу 2</b> — k=${p.m2.k.toFixed(4)} · из фактических продаж по тирам, не по дате закупки.<br>
+  <span style="color:var(--warning)">По дате закупки партий было бы ${fr(p.cogsBatchDate)}</span></div>
+</div>`:`<div style="background:rgba(234,179,8,.07);border:1px solid rgba(234,179,8,.25);border-radius:10px;padding:11px 18px;margin-bottom:16px;font-size:12px;color:var(--muted)">
+  ⚠️ <b style="color:var(--warning)">Метод 2 недоступен</b> — заполни «Себестоимость по категориям» хотя бы в одной партии. Сейчас COGS = сумма закупок за период.
+</div>`}
 <div class="pnl-blk">
   <div class="pnl-r hd"><span>🔷 Выручка</span><span class="pnl-n" style="color:var(--accent)">${fr(p.rev)}</span></div>
   <div class="pnl-r sub"><span>Наличные</span><span class="pnl-n">${fr(p.rn)}</span></div>
   <div class="pnl-r sub"><span>Безналичные</span><span class="pnl-n">${fr(p.rb)}</span></div>
 </div>
 <div class="pnl-blk">
-  <div class="pnl-r hd"><span>📦 Себестоимость (Партии)</span><span class="pnl-n bad">${fr(p.cogs)}</span></div>
-  <div class="pnl-r sub"><span>Закупка товара</span><span class="pnl-n">${fr(p.cb)}</span></div>
-  <div class="pnl-r sub"><span>Доставка</span><span class="pnl-n">${fr(p.cd)}</span></div>
+  <div class="pnl-r hd"><span>📦 Себестоимость ${isM2?'(Метод 2 — по продажам)':'(по дате закупки)'}</span><span class="pnl-n bad">${fr(p.cogs)}</span></div>
+  ${isM2&&p.m2&&p.m2.tierRows.length>0?p.m2.tierRows.map(r=>`<div class="pnl-r sub"><span>${r.label} · ${r.qty}шт · ${r.price.toLocaleString('ru-RU')}₽/шт</span><span class="pnl-n">${fr(r.cogs)} <span style="color:var(--success);font-size:10px">+${fr(r.profit)} маржа</span></span></div>`).join(''):`<div class="pnl-r sub"><span>Закупка товара</span><span class="pnl-n">${fr(p.cb)}</span></div><div class="pnl-r sub"><span>Доставка</span><span class="pnl-n">${fr(p.cd)}</span></div>`}
 </div>
 <div class="pnl-blk">
   <div class="pnl-r tot"><span>💰 Валовая прибыль</span><span class="pnl-n ${p.gp>=0?'ok':'bad'}">${fr(p.gp)} <span style="font-size:11px;color:var(--muted)">${fp(p.gm)}</span></span></div>
@@ -809,7 +1235,6 @@ function rPnL(){
   <div class="pnl-r sub"><span>Чистая маржа</span><span class="pnl-n">${fp(p.nm)}</span></div>
 </div>`;
 }
-
 // ─── CASHFLOW ───
 function rCash(){
   const bal=calcBal(),s=cfg();
@@ -859,11 +1284,13 @@ ${founderTotal>0?`<div style="background:rgba(168,85,247,.06);border:1px solid r
 // ─── DYNAMICS ───
 function rDyn(){
   const mm=calcDyn().reverse();
+  const cats=priceCats();
+  const hasTierData=mm.some(m=>m.tierMo&&Object.values(m.tierMo).some(v=>v.qty>0));
   return`
 <div class="page-hdr"><div><div class="page-title">Динамика по месяцам</div><div class="page-sub">Сводка автоматически из всех разделов</div></div></div>
-<div class="card">
+<div class="card" style="margin-bottom:20px">
   ${mm.length===0?'<div class="empty">Данных пока нет</div>':`
-  <table><thead><tr><th>Месяц</th><th class="r">Выручка</th><th class="r">Расходы</th><th class="r">Себест.</th><th class="r">Вал. прибыль</th><th class="r">Налог</th><th class="r">Чистая прибыль</th><th class="r">Штук</th><th class="r">Ср. цена/шт</th></tr></thead>
+  <div class="tbl-wrap"><table><thead><tr><th>Месяц</th><th class="r">Выручка</th><th class="r">Расходы</th><th class="r">Себест.</th><th class="r">Вал. прибыль</th><th class="r">Налог</th><th class="r">Чистая прибыль</th><th class="r">Штук</th><th class="r">Ср. цена/шт</th></tr></thead>
   <tbody>${mm.map(m=>`<tr>
     <td style="font-weight:600">${ml(m.ym)}</td>
     <td class="r" style="color:var(--accent)">${fr(m.rev)}</td>
@@ -873,8 +1300,29 @@ function rDyn(){
     <td class="r" style="font-weight:700;color:${m.net>=0?'var(--success)':'var(--danger)'}">${fr(m.net)}</td>
     <td class="r dim">${fn(m.items||m.chk)}</td>
     <td class="r">${m.avg?fr(m.avg):'—'}</td></tr>`).join('')}
-  </tbody></table>`}
-</div>`;
+  </tbody></table></div>`}
+</div>
+
+${hasTierData?`<div class="card">
+  <div class="card-hdr"><h3>🌡 Сезонность по ценовым категориям</h3><span style="font-size:12px;color:var(--muted)">Продажи по тирам помесячно</span></div>
+  <div class="tbl-wrap"><table>
+    <thead><tr><th>Месяц</th>${cats.map((c,i)=>`<th class="r" style="color:${TIER_COLORS[i%TIER_COLORS.length]}">${c.label}<br><span style="font-size:9px;color:var(--muted)">${c.price.toLocaleString('ru-RU')}₽</span></th>`).join('')}<th class="r">Итого шт</th></tr></thead>
+    <tbody>${mm.filter(m=>m.tierMo&&Object.values(m.tierMo).some(v=>v.qty>0)).map(m=>{
+      const totQ=cats.reduce((a,c)=>a+(m.tierMo[c.key]?.qty||0),0);
+      return`<tr>
+        <td style="font-weight:600">${ml(m.ym)}</td>
+        ${cats.map((c,i)=>{
+          const q=m.tierMo[c.key]?.qty||0;
+          const pct=totQ>0?Math.round(q/totQ*100):0;
+          const color=TIER_COLORS[i%TIER_COLORS.length];
+          return`<td class="r">${q>0?`<span style="font-weight:700;color:${color}">${q}</span><br><span style="font-size:10px;color:var(--muted)">${pct}%</span>`:'—'}</td>`;
+        }).join('')}
+        <td class="r" style="font-weight:700">${fn(totQ)}</td>
+      </tr>`;
+    }).join('')}
+    </tbody>
+  </table></div>
+</div>`:''}`;
 }
 
 // ─── PLAN vs FACT ───
@@ -1011,6 +1459,7 @@ function rSet(){
         <label>GitHub Personal Access Token</label>
         <input type="password" id="s-gh-token" value="${s.githubToken||''}" placeholder="ghp_xxxxxxxxxxxxxxxxxxxx"
           style="font-family:'JetBrains Mono',monospace;font-size:12px">
+        ${s.githubToken?'<div style="margin-top:5px;font-size:11px;color:var(--success)">✅ Токен сохранён</div>':'<div style="margin-top:5px;font-size:11px;color:var(--warning)">⚠️ Токен не введён — вставь и нажми Сохранить токен</div>'}
       </div>
       ${s.gistId?`<div style="padding:10px 14px;background:var(--surface2);border-radius:8px;font-size:12px">
         <span style="color:var(--muted)">Текущий Gist ID: </span>
@@ -1119,6 +1568,44 @@ function updateFsStyle(){
 }
 function readFundSource(){return document.querySelector('input[name="fundSource"]:checked')?.value||'business';}
 
+
+// ─── WRITE-OFF FORM ───
+function writeoffFormHtml(writeoffs){
+  const cats=priceCats();
+  const existing={};
+  if(writeoffs)writeoffs.forEach(w=>{existing[w.key]=w;});
+  return`<div style="border:1px solid rgba(239,68,68,.3);border-radius:10px;overflow:hidden;margin-top:4px">
+  <div style="background:rgba(239,68,68,.08);padding:10px 16px;display:flex;justify-content:space-between;align-items:center">
+    <div>
+      <div style="font-size:12px;font-weight:700;color:var(--danger)">🗑 Списания / Брак</div>
+      <div style="font-size:10px;color:var(--muted);margin-top:1px">Вещи, которые не продались и списаны</div>
+    </div>
+  </div>
+  <div style="display:grid;grid-template-columns:100px 80px 1fr;gap:0;background:var(--surface2);border-top:1px solid rgba(239,68,68,.2);padding:6px 14px">
+    <div style="font-size:9px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.8px">Категория</div>
+    <div style="font-size:9px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.8px;text-align:center">Списано шт</div>
+    <div style="font-size:9px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.8px;padding-left:8px">Причина</div>
+  </div>
+  ${cats.map(t=>`<div style="display:grid;grid-template-columns:100px 80px 1fr;align-items:center;padding:6px 14px;border-top:1px solid rgba(255,255,255,.03)">
+    <div style="font-size:13px;font-weight:700;color:var(--muted)">${t.label}<br><span style="font-size:10px;font-weight:400">${t.price.toLocaleString('ru-RU')}₽</span></div>
+    <div><input type="number" class="wo-qty" data-key="${t.key}" data-label="${t.label}" placeholder="0" min="0" value="${existing[t.key]?existing[t.key].qty:''}" style="width:100%;padding:5px 8px;font-size:13px;text-align:center;background:var(--surface2);border:1px solid rgba(239,68,68,.3);border-radius:7px;color:var(--danger);font-family:'Montserrat',sans-serif;outline:none"></div>
+    <div style="padding-left:8px"><input type="text" class="wo-reason" data-key="${t.key}" placeholder="брак, не продалось..." value="${existing[t.key]?existing[t.key].reason||'':''}" style="width:100%;padding:5px 8px;font-size:12px;background:var(--surface2);border:1px solid var(--border);border-radius:7px;color:var(--muted);font-family:'Montserrat',sans-serif;outline:none"></div>
+  </div>`).join('')}
+</div>`;
+}
+
+function readWriteoffs(){
+  const items=[];
+  document.querySelectorAll('.wo-qty').forEach(el=>{
+    const qty=+el.value||0;
+    if(qty>0){
+      const reason=document.querySelector(`.wo-reason[data-key="${el.dataset.key}"]`)?.value||'';
+      items.push({key:el.dataset.key,label:el.dataset.label,qty,reason});
+    }
+  });
+  return items.length>0?items:null;
+}
+
 // ═══ COGS METHOD 2 CALCULATOR ═══
 // Метод 2: распределение себестоимости пропорционально продажной цене
 // Логика: дорогие вещи «стоят» больше из палеты. Если ты купил 10 футболок по 149₽ и 5 пальто по 1999₽,
@@ -1208,13 +1695,13 @@ function updateCogsCalc(){
 function readCogsItems(){
   const costEl=document.getElementById('fcost'),delEl=document.getElementById('fdel');
   const totalCost=(+costEl?.value||0)+(+delEl?.value||0);
-  const cats=priceCats();
   const items=[];
   document.querySelectorAll('.cogs-qty').forEach(el=>{
     const qty=+el.value||0;
     if(qty>0)items.push({key:el.dataset.key,price:+el.dataset.price,label:el.dataset.label,qty});
   });
-  if(items.length===0||totalCost===0)return null;
+  if(items.length===0)return null;
+  if(totalCost===0)return items.map(x=>({...x,unitCogs:0,totalCogs:0,margin:0}));
   return cogsMethod2(items,totalCost);
 }
 function oEditSale(id){
@@ -1233,7 +1720,7 @@ function oEditSale(id){
 <div class="m-foot"><button class="btn btn-g" onclick="hideM()">Отмена</button><button class="btn btn-p" onclick="svEditSale('${id}')">💾 Сохранить</button></div>`)
 }
 function svEditSale(id){
-  const d=document.getElementById('fd').value;if(!d){alert('Укажите дату');return}
+  const d=document.getElementById('fd').value;if(!d){toast('Укажи дату','err');return}
   const ss=sales().map(x=>x.id===id?{...x,date:d,nal:+document.getElementById('fn').value||0,
     beznal:+document.getElementById('fb').value||0,nalChecks:+document.getElementById('fnc').value||0,
     beznalChecks:+document.getElementById('fbc').value||0,note:document.getElementById('fnote').value,
@@ -1257,7 +1744,7 @@ function oEditExp(id){
 <div class="m-foot"><button class="btn btn-g" onclick="hideM()">Отмена</button><button class="btn btn-p" onclick="svEditExp('${id}')">💾 Сохранить</button></div>`)
 }
 function svEditExp(id){
-  const d=document.getElementById('fd').value;if(!d){alert('Укажите дату');return}
+  const d=document.getElementById('fd').value;if(!d){toast('Укажи дату','err');return}
   const ee=exps().map(x=>x.id===id?{...x,date:d,description:document.getElementById('fdesc').value,
     category:document.getElementById('fcat').value,nal:+document.getElementById('fn').value||0,
     beznal:+document.getElementById('fb').value||0,note:document.getElementById('fnote').value,
@@ -1281,18 +1768,19 @@ function oEditBatch(id){
   ${fundSourceSelect(x.fundSource||'business')}
   <div class="fgrp full"><label>Примечание</label><input type="text" id="fnote" value="${x.note||''}"></div>
   <div class="fgrp full">${cogsFormHtml(x.cogsItems||null)}</div>
+  <div class="fgrp full">${writeoffFormHtml(x.writeoffs||null)}</div>
 </div>
 <div class="m-foot"><button class="btn btn-g" onclick="hideM()">Отмена</button><button class="btn btn-p" onclick="svEditBatch('${id}')">💾 Сохранить</button></div>`)
   setTimeout(updateCogsCalc,50);
 }
 function svEditBatch(id){
-  const d=document.getElementById('fd').value;if(!d){alert('Укажите дату');return}
+  const d=document.getElementById('fd').value;if(!d){toast('Укажи дату','err');return}
   const bb=batches().map(x=>x.id===id?{...x,date:d,batchNum:document.getElementById('fnum').value,
     paletType:document.getElementById('ftype').value,paletCount:+document.getElementById('fpal').value||0,
     cost:+document.getElementById('fcost').value||0,delivery:+document.getElementById('fdel').value||0,
     units:+document.getElementById('funits').value||0,payType:document.getElementById('fpay').value,
     note:document.getElementById('fnote').value,fundSource:readFundSource(),
-    cogsItems:readCogsItems()}:x);
+    cogsItems:readCogsItems(),writeoffs:readWriteoffs()}:x);
   save(K.batches,bb);hideM();render();
 }
 
@@ -1330,7 +1818,7 @@ function oAddInv(){showM(`
 <div class="m-foot"><button class="btn btn-g" onclick="hideM()">Отмена</button><button class="btn btn-p" onclick="svAddInv()">💾 Сохранить</button></div>`)}
 
 function svAddInv(){
-  const d=document.getElementById('fd').value;if(!d){alert('Укажите дату');return}
+  const d=document.getElementById('fd').value;if(!d){toast('Укажи дату','err');return}
   const items=readInvRows();
   const inv=inventory();
   inv.push({id:gid(),date:d,note:document.getElementById('fnote').value,items,source:'manual'});
@@ -1350,7 +1838,7 @@ function oEditInv(id){
 <div class="m-foot"><button class="btn btn-g" onclick="hideM()">Отмена</button><button class="btn btn-p" onclick="svEditInv('${id}')">💾 Сохранить</button></div>`)
 }
 function svEditInv(id){
-  const d=document.getElementById('fd').value;if(!d){alert('Укажите дату');return}
+  const d=document.getElementById('fd').value;if(!d){toast('Укажи дату','err');return}
   const inv=inventory().map(x=>x.id===id?{...x,date:d,note:document.getElementById('fnote').value,items:readInvRows()}:x);
   save(K.inventory,inv);hideM();render();
 }
@@ -1455,7 +1943,7 @@ function svInvCSV(){
   inv.push({id:gid(),date:d,note:document.getElementById('inv-note').value||'Эвотор CSV',items:_invRows,source:'evotor'});
   save(K.inventory,inv);
   hideM();
-  alert(`✅ Сохранено ${_invRows.length} категорий остатков!`);
+  toast(`✅ Сохранено ${_invRows.length} категорий остатков`);
   render();
 }
 
@@ -1695,7 +2183,7 @@ function svEvotorCSV(){
   });
   save(K.sales,existing);
   hideM();
-  alert(`✅ Импортировано ${newRows.length} дней продаж из Эвотора!`);
+  toast(`✅ Импортировано ${newRows.length} дней из Эвотора`);
   render();
 }
 
@@ -1714,7 +2202,7 @@ function oAddSale(){showM(`
 <div class="m-foot"><button class="btn btn-g" onclick="hideM()">Отмена</button><button class="btn btn-p" onclick="svSale()">Сохранить</button></div>`)}
 
 function svSale(){
-  const d=document.getElementById('fd').value;if(!d){alert('Укажите дату');return}
+  const d=document.getElementById('fd').value;if(!d){toast('Укажи дату','err');return}
   const ss=sales();
   ss.push({id:gid(),date:d,nal:+document.getElementById('fn').value||0,beznal:+document.getElementById('fb').value||0,
     nalChecks:+document.getElementById('fnc').value||0,beznalChecks:+document.getElementById('fbc').value||0,
@@ -1737,7 +2225,7 @@ function oAddExp(){showM(`
 <div class="m-foot"><button class="btn btn-g" onclick="hideM()">Отмена</button><button class="btn btn-p" onclick="svExp()">Сохранить</button></div>`)}
 
 function svExp(){
-  const d=document.getElementById('fd').value;if(!d){alert('Укажите дату');return}
+  const d=document.getElementById('fd').value;if(!d){toast('Укажи дату','err');return}
   const ee=exps();
   ee.push({id:gid(),date:d,description:document.getElementById('fdesc').value,category:document.getElementById('fcat').value,
     nal:+document.getElementById('fn').value||0,beznal:+document.getElementById('fb').value||0,
@@ -1762,26 +2250,27 @@ function oAddBatch(){
   ${fundSourceSelect('business')}
   <div class="fgrp full"><label>Примечание</label><input type="text" id="fnote" placeholder="необязательно"></div>
   <div class="fgrp full">${cogsFormHtml(null)}</div>
+  <div class="fgrp full">${writeoffFormHtml(null)}</div>
 </div>
 <div class="m-foot"><button class="btn btn-g" onclick="hideM()">Отмена</button><button class="btn btn-p" onclick="svBatch()">Сохранить</button></div>`)}
 
 function svBatch(){
-  const d=document.getElementById('fd').value;if(!d){alert('Укажите дату');return}
+  const d=document.getElementById('fd').value;if(!d){toast('Укажи дату','err');return}
   const bb=batches();
   bb.push({id:gid(),date:d,batchNum:document.getElementById('fnum').value,paletType:document.getElementById('ftype').value,
     paletCount:+document.getElementById('fpal').value||0,cost:+document.getElementById('fcost').value||0,
     delivery:+document.getElementById('fdel').value||0,units:+document.getElementById('funits').value||0,
     payType:document.getElementById('fpay').value,note:document.getElementById('fnote').value,
-    fundSource:readFundSource(),cogsItems:readCogsItems()});
+    fundSource:readFundSource(),cogsItems:readCogsItems(),writeoffs:readWriteoffs()});
   save(K.batches,bb);hideM();render();
 }
 function delBatch(id){if(!confirm('Удалить запись?'))return;save(K.batches,batches().filter(x=>x.id!==id));render()}
 
 function saveGistToken(){
   const token=document.getElementById('s-gh-token').value.trim();
-  if(!token){alert('Введи токен!');return;}
+  if(!token){toast('Введи GitHub токен!','err');return;}
   save(K.settings,{...cfg(),githubToken:token});
-  alert('✅ Токен сохранён! Теперь нажми «📤 Опубликовать» на дашборде.');render();
+  toast('✅ Токен сохранён! Жми Опубликовать');render();
 }
 
 function saveCfg(){
@@ -1793,7 +2282,7 @@ function saveCfg(){
     beznalBalance:+document.getElementById('s-beznal').value||0,
     founderInvestment:+document.getElementById('s-founder').value||0,
     startDate:document.getElementById('s-start').value||'2026-03-23'});
-  alert('Настройки сохранены!');render();
+  toast('✅ Настройки сохранены');render();
 }
 
 function savePriceCats(){
@@ -1805,10 +2294,10 @@ function savePriceCats(){
     const price=+row.querySelector('.pc-price').value||0;
     if(key&&label&&price>0)cats.push({key,label,price});
   });
-  if(cats.length===0){alert('Добавь хотя бы одну категорию!');return}
+  if(cats.length===0){toast('Добавь хотя бы одну категорию','err');return}
   const cur=cfg();
   save(K.settings,{...cur,priceCats:cats});
-  alert(`✅ Сохранено ${cats.length} категорий!`);render();
+  toast(`✅ Сохранено ${cats.length} категорий`);render();
 }
 
 function addPcRow(){
@@ -1883,16 +2372,34 @@ function impData(input){
     if(d.batches)save(K.batches,d.batches);
     if(d.plans)save(K.plans,d.plans);
     if(d.inventory)save(K.inventory,d.inventory);
-    alert('Данные импортированы!');render();
-  }catch(err){alert('Ошибка импорта: '+err.message)}};
+    toast('✅ Данные импортированы');render();
+  }catch(err){toast('❌ Ошибка импорта: '+err.message,'err',5000)}};
   r.readAsText(file);input.value='';
 }
 
 function clearAll(){
-  if(!confirm('Удалить ВСЕ данные? Это действие нельзя отменить!'))return;
-  if(!confirm('Вы уверены? Все записи будут удалены навсегда.'))return;
-  Object.values(K).forEach(k=>localStorage.removeItem(k));
-  alert('Данные очищены.');render();
+  const ss=sales().length,ee=exps().length,bb=batches().length;
+  showM(`
+<div class="m-hdr"><h2 style="color:var(--danger)">🗑 Удалить все данные?</h2><button class="m-x" onclick="hideM()">×</button></div>
+<div style="background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.3);border-radius:10px;padding:16px 18px;margin-bottom:16px">
+  <div style="font-size:13px;font-weight:700;color:var(--danger);margin-bottom:10px">⚠️ Это действие НЕЛЬЗЯ отменить!</div>
+  <div style="font-size:12px;color:var(--muted);line-height:1.8">
+    Будет удалено безвозвратно:<br>
+    📊 Продажи: <b style="color:var(--text)">${ss} записей</b><br>
+    💸 Расходы: <b style="color:var(--text)">${ee} записей</b><br>
+    📦 Партии: <b style="color:var(--text)">${bb} записей</b>
+  </div>
+</div>
+<div style="font-size:12px;color:var(--muted);margin-bottom:16px">
+  💡 Сначала сделай <b style="color:var(--text)">Экспорт JSON</b> — это займёт 2 секунды и сохранит все данные.
+</div>
+<div class="m-foot" style="justify-content:space-between">
+  <button class="btn btn-g" onclick="hideM()">Отмена</button>
+  <div style="display:flex;gap:8px">
+    <button class="btn btn-g" onclick="hideM();expData()" style="color:var(--accent);border-color:var(--accent)">📤 Сначала экспорт</button>
+    <button class="btn" onclick="Object.values(K).forEach(k=>localStorage.removeItem(k));hideM();toast('Данные очищены','warn');render();" style="background:var(--danger);color:#fff">Удалить всё</button>
+  </div>
+</div>`);
 }
 
 // ═══ PLANNING ═══
@@ -2232,7 +2739,7 @@ async function fetchGistData(gistId){
 async function publishToGist(){
   const s=cfg();
   const token=s.githubToken||'';
-  if(!token){alert('Укажи GitHub токен в Настройках!');nav('settings');return;}
+  if(!token){toast('⚠️ Укажи GitHub токен в Настройках','warn',5000);setTimeout(()=>nav('settings'),1500);return;}
 
   const btn=document.getElementById('gist-pub-btn');
   if(btn){btn.textContent='⏳ Публикую...';btn.disabled=true;}
@@ -2291,7 +2798,7 @@ async function publishToGist(){
   <button class="btn btn-p" onclick="navigator.clipboard.writeText('${shareUrl}').then(()=>{this.textContent='✅ Скопировано!'})">📋 Копировать ссылку</button>
 </div>`);
   }catch(e){
-    alert('❌ Ошибка публикации: '+e.message);
+    toast('❌ Ошибка: '+e.message,'err',6000);
   }finally{
     if(btn){btn.textContent='📤 Опубликовать';btn.disabled=false;}
   }
@@ -2336,7 +2843,8 @@ async function initViewMode(){
     if(_gistData.plans)save(K.plans,_gistData.plans);
     if(_gistData.inventory)save(K.inventory,_gistData.inventory);
     // Remove github token from view mode settings for security
-    const s=cfg();delete s.githubToken;delete s.gistId;save(K.settings,s);
+    // Never delete githubToken — owner may open own link; only clear gistId to prevent confusion
+    const s=cfg();const ownerToken=s.githubToken;delete s.gistId;if(!ownerToken)delete s.githubToken;save(K.settings,s);
     // Lock editing — hide all edit/delete/add buttons
     document.body.classList.add('is-view-mode');
     // Lock editing nav items
@@ -2371,6 +2879,7 @@ function showMoreMenu(){
   const pages=[
     {p:'expenses',icon:'💸',label:'Расходы'},
     {p:'batches',icon:'📦',label:'Партии'},
+    {p:'cogs',icon:'🏷',label:'Себестоимость'},
     {p:'cashflow',icon:'💵',label:'Кэш-флоу'},
     {p:'dynamics',icon:'📅',label:'Динамика'},
     {p:'planfact',icon:'🎯',label:'План vs Факт'},
@@ -2386,11 +2895,75 @@ function showMoreMenu(){
   </button>`).join('')}
 </div>`);
 }
+// ═══ TOAST SYSTEM ═══
+function toast(msg, type='ok', dur=3500){
+  let t=document.getElementById('toast-box');
+  if(!t){t=document.createElement('div');t.id='toast-box';
+    t.style.cssText='position:fixed;bottom:24px;right:24px;z-index:9999;display:flex;flex-direction:column;gap:8px;pointer-events:none';
+    document.body.appendChild(t);}
+  const el=document.createElement('div');
+  const bg=type==='ok'?'#22c55e':type==='warn'?'#eab308':type==='err'?'#ef4444':'#3b82f6';
+  el.style.cssText=`background:${bg};color:#fff;padding:10px 16px;border-radius:10px;font-size:13px;font-weight:600;font-family:Montserrat,sans-serif;box-shadow:0 4px 16px rgba(0,0,0,.4);opacity:0;transition:opacity .2s;max-width:300px;pointer-events:none`;
+  el.textContent=msg;t.appendChild(el);
+  requestAnimationFrame(()=>{el.style.opacity='1';});
+  setTimeout(()=>{el.style.opacity='0';setTimeout(()=>el.remove(),300);},dur);
+}
+
+// ═══ DATA COUNTER SIDEBAR ═══
+function updateSbStats(){
+  const el=document.getElementById('sb-stats');if(!el)return;
+  const ss=sales().length,ee=exps().length,bb=batches().length;
+  const lastSale=sales().sort((a,b)=>b.date.localeCompare(a.date))[0];
+  const lastDate=lastSale?'последняя: '+fd(lastSale.date):'нет данных';
+  el.innerHTML=`
+    <div style="color:var(--text);font-weight:700;margin-bottom:4px">📦 В браузере:</div>
+    <div>💰 Продажи: <b style="color:var(--accent)">${ss}</b></div>
+    <div>💸 Расходы: <b style="color:var(--accent)">${ee}</b></div>
+    <div>📦 Партии: <b style="color:var(--accent)">${bb}</b></div>
+    <div style="margin-top:4px;color:var(--muted);font-size:10px">${lastDate}</div>`;
+}
+
+// ═══ AUTO BACKUP ═══
+const BACKUP_KEY='nk_last_backup';
+function checkAutoBackup(){
+  if(_viewMode)return;
+  const ss=sales().length,ee=exps().length,bb=batches().length;
+  if(ss+ee+bb===0)return; // нечего бэкапить
+  const last=localStorage.getItem(BACKUP_KEY);
+  const now=new Date();
+  const todayStr=now.toISOString().slice(0,10);
+  if(last===todayStr)return; // уже делали сегодня
+  // Показываем напоминание через 5 сек после загрузки
+  setTimeout(()=>{
+    const el=document.createElement('div');
+    el.id='backup-reminder';
+    el.style.cssText='position:fixed;bottom:24px;left:50%;transform:translateX(-50%);z-index:9998;background:var(--surface);border:1px solid var(--accent);border-radius:12px;padding:14px 18px;display:flex;align-items:center;gap:14px;box-shadow:0 4px 24px rgba(0,0,0,.5);font-family:Montserrat,sans-serif;max-width:420px;width:90%';
+    el.innerHTML=`
+      <div style="font-size:24px">💾</div>
+      <div style="flex:1">
+        <div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:2px">Сделай бэкап данных</div>
+        <div style="font-size:11px;color:var(--muted)">${ss} продаж · ${ee} расходов · ${bb} партий</div>
+      </div>
+      <div style="display:flex;gap:8px">
+        <button onclick="expData();localStorage.setItem('${BACKUP_KEY}','${todayStr}');document.getElementById('backup-reminder')?.remove();toast('✅ Бэкап сохранён!')" 
+          style="background:var(--accent);color:#fff;border:none;border-radius:8px;padding:8px 14px;font-size:12px;font-weight:700;cursor:pointer;font-family:Montserrat,sans-serif;white-space:nowrap">💾 Скачать</button>
+        <button onclick="localStorage.setItem('${BACKUP_KEY}','${todayStr}');document.getElementById('backup-reminder')?.remove()"
+          style="background:var(--surface2);color:var(--muted);border:1px solid var(--border);border-radius:8px;padding:8px 12px;font-size:12px;cursor:pointer;font-family:Montserrat,sans-serif">Позже</button>
+      </div>`;
+    document.body.appendChild(el);
+    // Автоскрытие через 20 сек
+    setTimeout(()=>el.remove(),20000);
+  },5000);
+}
+
+// Sidebar stats updated via render() directly
+
 if(!load(K.settings))save(K.settings,{...DEF});
 if(_viewMode){
   initViewMode();
 }else{
   render();
+  checkAutoBackup();
 }
 </script>
 </body>
