@@ -307,9 +307,7 @@ function calcPeriod(f,t){
   const mb=batches().filter(x=>x.date>=f&&x.date<=t);
   const rev=ms.reduce((a,x)=>a+(x.nal||0)+(x.beznal||0),0);
   const opexp=me.filter(x=>x.category!=='Товар/Палеты'&&x.category!=='Доставка').reduce((a,x)=>a+(x.nal||0)+(x.beznal||0),0);
-  const cogsBD=mb.reduce((a,x)=>a+(x.cost||0)+(x.delivery||0),0);
-  const m2p=calcMethod2Cogs(ms);
-  const cogs=m2p?m2p.totalCogs:cogsBD;
+  const cogs=mb.reduce((a,x)=>a+(x.cost||0)+(x.delivery||0),0);
   const exp=opexp+cogs;
   const chk=ms.reduce((a,x)=>a+(x.nalChecks||0)+(x.beznalChecks||0),0);
   const tierQty=ms.reduce((a,x)=>{const ts=tierSums(x);return a+(ts?ts.qty:0)},0);
@@ -321,7 +319,7 @@ function calcPeriod(f,t){
   const cats=priceCats();
   const tierTotals={};cats.forEach(c=>{tierTotals[c.key]={qty:0,rev:0}});
   ms.forEach(x=>{if(x.priceCats)cats.forEach(c=>{if(x.priceCats[c.key]){tierTotals[c.key].qty+=x.priceCats[c.key].qty||0;tierTotals[c.key].rev+=x.priceCats[c.key].rev||0}})});
-  return{rev,exp,opexp,cogs,cogsM2:!!m2p,chk,items,tax,profit:rev-exp-tax,avg,tierTotals};
+  return{rev,exp,opexp,cogs,chk,items,tax,profit:rev-exp-tax,avg,tierTotals};
 }
 
 function calcMonth(){
@@ -329,6 +327,15 @@ function calcMonth(){
   const f=new Date(now.getFullYear(),now.getMonth(),1).toISOString().slice(0,10);
   const t=today();
   return calcPeriod(f,t);
+}
+
+// ── Backward-compat: get payments array for a batch ──
+// New batches have x.payments[]. Old batches have x.fundSource + x.payType.
+function getBatchPayments(x){
+  if(x.payments&&x.payments.length>0)return x.payments;
+  const t=(x.cost||0)+(x.delivery||0);
+  if(!t)return[];
+  return[{id:'legacy',source:x.fundSource||'business',type:x.payType||'нал',amount:t,date:x.date}];
 }
 
 function calcBal(){
@@ -340,10 +347,12 @@ function calcBal(){
   // Only business-funded expenses reduce cash balance; founder-paid expenses don't touch business cash
   exps().filter(x=>x.category!=='Товар/Палеты'&&x.category!=='Доставка'&&x.fundSource!=='founder')
     .forEach(x=>{c-=x.nal||0;b-=x.beznal||0});
+  // Each batch may have multiple payments from different sources/types
   batches().forEach(x=>{
-    const t=(x.cost||0)+(x.delivery||0);
-    if(x.fundSource==='founder')return; // founder-paid batches don't reduce business cash
-    if(x.payType==='безнал')b-=t;else c-=t;
+    getBatchPayments(x).forEach(p=>{
+      if(p.source==='founder')return;
+      if(p.type==='безнал')b-=p.amount||0; else c-=p.amount||0;
+    });
   });
   return{c,b};
 }
@@ -356,13 +365,9 @@ function calcPnL(f,t){
   const rn=ms.reduce((a,x)=>a+(x.nal||0),0);
   const rb=ms.reduce((a,x)=>a+(x.beznal||0),0);
   const rev=rn+rb;
-  // Method 2 COGS: based on actual sales × k
-  const m2=calcMethod2Cogs(ms);
   const cb=mb.reduce((a,x)=>a+(x.cost||0),0);
   const cd=mb.reduce((a,x)=>a+(x.delivery||0),0);
-  const cogsBatchDate=cb+cd; // legacy: batch purchase date
-  const cogs=m2?m2.totalCogs:cogsBatchDate; // prefer Method 2
-  const cogsMethod=m2?'method2':'batchdate';
+  const cogs=cb+cd;
   const gp=rev-cogs;
   const bycat={};
   CATS.forEach(c=>{bycat[c]=0});
@@ -371,7 +376,7 @@ function calcPnL(f,t){
   const ebitda=gp-opexp;
   const tax=rev*s.taxRate;
   const net=ebitda-tax;
-  return{rn,rb,rev,cb,cd,cogs,cogsBatchDate,cogsMethod,m2,gp,gm:rev>0?gp/rev:0,bycat,opexp,ebitda,em:rev>0?ebitda/rev:0,tax,net,nm:rev>0?net/rev:0};
+  return{rn,rb,rev,cb,cd,cogs,gp,gm:rev>0?gp/rev:0,bycat,opexp,ebitda,em:rev>0?ebitda/rev:0,tax,net,nm:rev>0?net/rev:0};
 }
 
 function calcDyn(){
@@ -384,13 +389,7 @@ function calcDyn(){
     const rev=ms.reduce((a,x)=>a+(x.nal||0)+(x.beznal||0),0);
     // opex excludes Товар/Палеты and Доставка — tracked via Партии
     const opexp=me.filter(x=>x.category!=='Товар/Палеты'&&x.category!=='Доставка').reduce((a,x)=>a+(x.nal||0)+(x.beznal||0),0);
-    const cogsBD=mb.reduce((a,x)=>a+(x.cost||0)+(x.delivery||0),0);
-    const m2d=calcMethod2Cogs(ms);
-    const cogs=m2d?m2d.totalCogs:cogsBD;
-    // Tier breakdown for seasonality
-    const cats2=priceCats();
-    const tierMo={};cats2.forEach(c2=>{tierMo[c2.key]={qty:0,rev:0};});
-    ms.forEach(s=>{if(s.priceCats)cats2.forEach(c2=>{if(s.priceCats[c2.key]){tierMo[c2.key].qty+=s.priceCats[c2.key].qty||0;tierMo[c2.key].rev+=s.priceCats[c2.key].rev||0;}});});
+    const cogs=mb.reduce((a,x)=>a+(x.cost||0)+(x.delivery||0),0);
     const exp=opexp+cogs;
     const chk=ms.reduce((a,x)=>a+(x.nalChecks||0)+(x.beznalChecks||0),0);
     const tierQty=ms.reduce((a,x)=>{const ts=tierSums(x);return a+(ts?ts.qty:0)},0);
@@ -400,110 +399,8 @@ function calcDyn(){
     const tax=rev*s.taxRate;
     const gp=rev-cogs;
     const net=gp-opexp-tax;
-    return{ym,rev,exp,opexp,cogs,gp,tax,net,chk,items,avg,tierMo};
+    return{ym,rev,exp,opexp,cogs,gp,tax,net,chk,items,avg};
   });
-}
-
-
-// ═══ METHOD 2 COGS HELPER ═══
-// Calculates COGS from actual sales using k from all batches with cogsItems
-// Returns null if no data, else {k, totalCogs, totalRevSold, cogsByTier, tierRows}
-function calcMethod2Cogs(salesList){
-  const bb=batches().filter(x=>x.cogsItems&&x.cogsItems.length>0);
-  if(!bb.length)return null;
-  let totalInvested=0,totalPotRev=0;
-  bb.forEach(b=>{
-    totalInvested+=(b.cost||0)+(b.delivery||0);
-    b.cogsItems.forEach(ci=>{totalPotRev+=(ci.qty||0)*(ci.price||0);});
-  });
-  if(!totalPotRev)return null;
-  const k=totalInvested/totalPotRev;
-  const cats=priceCats();
-  const cogsByTier={};
-  cats.forEach(c=>{cogsByTier[c.key]={key:c.key,label:c.label,price:c.price,qty:0,rev:0,cogs:0,profit:0};});
-  let totalCogs=0,totalRevSold=0;
-  (salesList||[]).forEach(s=>{
-    const sRev=(s.nal||0)+(s.beznal||0);
-    if(s.priceCats){
-      cats.forEach(c=>{
-        if(!s.priceCats[c.key])return;
-        const qty=s.priceCats[c.key].qty||0;
-        const rev=s.priceCats[c.key].rev||(qty*c.price);
-        const cogs=rev*k;
-        cogsByTier[c.key].qty+=qty;
-        cogsByTier[c.key].rev+=rev;
-        cogsByTier[c.key].cogs+=cogs;
-        cogsByTier[c.key].profit+=(rev-cogs);
-        totalCogs+=cogs;totalRevSold+=rev;
-      });
-    } else {
-      // No tier data — attribute COGS proportionally to total revenue
-      const revCogs=sRev*k;
-      totalCogs+=revCogs;totalRevSold+=sRev;
-    }
-  });
-  return{k,totalCogs,totalRevSold,cogsByTier,tierRows:Object.values(cogsByTier).filter(c=>c.qty>0)};
-}
-
-// ═══ SELL-THROUGH HELPER ═══
-function calcSellThrough(){
-  const bb=batches();
-  const ss=sales();
-  const cats=priceCats();
-  // Purchased per tier from cogsItems
-  const purchased={};cats.forEach(c=>{purchased[c.key]=0;});
-  bb.forEach(b=>{if(b.cogsItems)b.cogsItems.forEach(ci=>{purchased[ci.key]=(purchased[ci.key]||0)+(ci.qty||0);});});
-  // Written-off per tier
-  const writtenOff={};cats.forEach(c=>{writtenOff[c.key]=0;});
-  bb.forEach(b=>{if(b.writeoffs)b.writeoffs.forEach(w=>{writtenOff[w.key]=(writtenOff[w.key]||0)+(w.qty||0);});});
-  // Sold per tier
-  const sold={};cats.forEach(c=>{sold[c.key]=0;});
-  ss.forEach(s=>{if(!s.priceCats)return;cats.forEach(c=>{if(s.priceCats[c.key])sold[c.key]+=(s.priceCats[c.key].qty||0);});});
-  const totalPurchasedTier=Object.values(purchased).reduce((a,v)=>a+v,0);
-  const totalBatchUnits=bb.reduce((a,b)=>a+(b.units||0),0);
-  const totalSoldTier=Object.values(sold).reduce((a,v)=>a+v,0);
-  const totalWrittenOff=Object.values(writtenOff).reduce((a,v)=>a+v,0);
-  const totalUnits=totalPurchasedTier>0?totalPurchasedTier:totalBatchUnits;
-  const remaining=Math.max(0,totalUnits-totalSoldTier-totalWrittenOff);
-  // Daily avg sold (last 30 days)
-  const t30=new Date(Date.now()-30*864e5).toISOString().slice(0,10);
-  const recent=ss.filter(s=>s.date>=t30);
-  const recentQty=recent.reduce((a,s)=>{const ts=tierSums(s);return a+(ts?ts.qty:(s.nalChecks||0)+(s.beznalChecks||0));},0);
-  const dailyAvg=recentQty/30;
-  const daysLeft=dailyAvg>0?remaining/dailyAvg:null;
-  // Frozen capital in remaining stock
-  const m2=calcMethod2Cogs([]);
-  const k=m2?m2.k:0;
-  const avgPricePerUnit=totalUnits>0?(()=>{let s=0;cats.forEach(c=>{s+=purchased[c.key]*c.price;});return s/totalUnits;})():0;
-  const frozenCapital=remaining*avgPricePerUnit*k;
-  return{totalUnits,totalSoldTier,totalWrittenOff,remaining,
-    sellPct:totalUnits>0?totalSoldTier/totalUnits:0,
-    dailyAvg,daysLeft,frozenCapital,purchased,sold,writtenOff,cats};
-}
-
-// ═══ ABC ANALYSIS HELPER ═══
-function calcABC(salesList){
-  const cats=priceCats();
-  const tierData={};
-  cats.forEach((c,i)=>{tierData[c.key]={key:c.key,label:c.label,price:c.price,idx:i,qty:0,rev:0,profit:0};});
-  const m2=calcMethod2Cogs(salesList);
-  const k=m2?m2.k:0;
-  (salesList||[]).forEach(s=>{
-    if(!s.priceCats)return;
-    cats.forEach(c=>{
-      if(!s.priceCats[c.key])return;
-      const qty=s.priceCats[c.key].qty||0;
-      const rev=s.priceCats[c.key].rev||(qty*c.price);
-      tierData[c.key].qty+=qty;
-      tierData[c.key].rev+=rev;
-      tierData[c.key].profit+=rev*(1-k);
-    });
-  });
-  const rows=Object.values(tierData).filter(d=>d.qty>0).sort((a,b)=>b.rev-a.rev);
-  const totalRev=rows.reduce((a,r)=>a+r.rev,0);
-  let cumRev=0;
-  rows.forEach(r=>{cumRev+=r.rev;r.cumRevPct=totalRev>0?cumRev/totalRev:0;r.revPct=totalRev>0?r.rev/totalRev:0;r.abc=r.cumRevPct<=0.8?'A':r.cumRevPct<=0.95?'B':'C';});
-  return rows;
 }
 
 // ═══ NAV ═══
@@ -784,10 +681,12 @@ ${hasDupCats?`<div style="background:rgba(234,179,8,.08);border:1px solid rgba(2
 // ─── BATCHES ───
 function rBatch(){
   const bb=batches().sort((a,b)=>b.date.localeCompare(a.date));
-  const bizBatches=bb.filter(x=>x.fundSource!=='founder');
-  const fndBatches=bb.filter(x=>x.fundSource==='founder');
-  const bizTotal=bizBatches.reduce((a,x)=>a+(x.cost||0)+(x.delivery||0),0);
-  const fndTotal=fndBatches.reduce((a,x)=>a+(x.cost||0)+(x.delivery||0),0);
+  // Use payments array for accurate KPI totals
+  const allPays=bb.flatMap(x=>getBatchPayments(x));
+  const bizTotal=allPays.filter(p=>p.source!=='founder').reduce((a,p)=>a+(p.amount||0),0);
+  const fndTotal=allPays.filter(p=>p.source==='founder').reduce((a,p)=>a+(p.amount||0),0);
+  const nalBiz=allPays.filter(p=>p.source!=='founder'&&p.type!=='безнал').reduce((a,p)=>a+(p.amount||0),0);
+  const bezBiz=allPays.filter(p=>p.source!=='founder'&&p.type==='безнал').reduce((a,p)=>a+(p.amount||0),0);
   const st=calcSellThrough();
   const sellPct=Math.round(st.sellPct*100);
   const barColor=sellPct>=80?'var(--success)':sellPct>=40?'var(--warning)':'var(--danger)';
@@ -795,7 +694,8 @@ function rBatch(){
   // Reorder alert: if < 14 days of stock left or remaining < 50 units
   const needReorder=st.daysLeft!==null&&st.daysLeft<14||st.remaining<50;
   return`
-<div class="page-hdr"><div><div class="page-title">Партии</div><div class="page-sub">Учёт закупок палет · Себестоимость Метод 2 · Выкуп ${sellPct}%</div></div>
+
+<div class="page-hdr"><div><div class="page-title">Партии</div><div class="page-sub">Учёт закупок палет · Себестоимость Метод 2</div></div>
 <button class="btn btn-p" onclick="oAddBatch()">+ Добавить</button></div>
 
 ${needReorder&&bb.length>0?`<div style="background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.4);border-radius:10px;padding:14px 18px;margin-bottom:16px;display:flex;align-items:center;gap:14px">
@@ -807,14 +707,16 @@ ${needReorder&&bb.length>0?`<div style="background:rgba(239,68,68,.1);border:1px
   <button class="btn btn-p btn-sm" onclick="oAddBatch()">+ Новая партия</button>
 </div>`:''}
 
-<div class="kpi-grid">
-  <div class="kpi"><div class="kpi-lbl">💼 Из оборотного капитала</div><div class="kpi-val bad">${fr(bizTotal)}</div></div>
+<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px;margin-bottom:20px">
+  <div class="kpi"><div class="kpi-lbl">💼 Из оборотки (нал)</div><div class="kpi-val bad">${fr(nalBiz)}</div></div>
+  <div class="kpi"><div class="kpi-lbl">💼 Из оборотки (безнал)</div><div class="kpi-val bad">${fr(bezBiz)}</div></div>
   <div class="kpi" style="border-color:rgba(168,85,247,.4)"><div class="kpi-lbl">🙋 Вложено основателем</div><div class="kpi-val" style="color:#a855f7">${fr(fndTotal)}</div></div>
   ${st.totalUnits>0?`
   <div class="kpi"><div class="kpi-lbl">Закуплено всего</div><div class="kpi-val">${fn(st.totalUnits)} шт</div></div>
   <div class="kpi"><div class="kpi-lbl">Продано (тиры)</div><div class="kpi-val ok">${fn(st.totalSoldTier)} шт</div></div>
   <div class="kpi"><div class="kpi-lbl">Остаток</div><div class="kpi-val ${st.remaining<100?'bad':''}">${fn(st.remaining)} шт</div></div>
   <div class="kpi"><div class="kpi-lbl">Замороженный капитал</div><div class="kpi-val" style="color:var(--warning)">${fr(st.frozenCapital)}</div></div>`:''}
+</div>
 </div>
 
 ${st.totalUnits>0?`<div class="card" style="margin-bottom:16px">
@@ -843,33 +745,46 @@ ${st.totalUnits>0?`<div class="card" style="margin-bottom:16px">
 
 <div class="card">
   ${bb.length===0?'<div class="empty">Нет записей. Нажмите «+ Добавить»</div>':`
-  <div class="tbl-wrap"><table><thead><tr><th>Дата</th><th>№</th><th>Тип</th><th class="r">Палет</th><th class="r">Стоим.</th><th class="r">Доставка</th><th class="r">Итого</th><th class="r">Единиц</th><th class="r">Себест./шт</th><th>Источник</th><th>Оплата</th><th class="sticky-r"></th></tr></thead>
+  <div class="tbl-wrap"><table><thead><tr><th>Дата</th><th>№</th><th>Тип</th><th class="r">Палет</th><th class="r">Товар</th><th class="r">Доставка</th><th class="r">Итого</th><th class="r">Единиц</th><th class="r">Опр-но</th><th class="r">Себест./шт</th><th>Оплата (разбивка)</th><th class="sticky-r"></th></tr></thead>
   <tbody>${bb.map(x=>{
-    const t=(x.cost||0)+(x.delivery||0),cpu=x.units>0?t/x.units:0;
-    const isFounder=x.fundSource==='founder';
+    const t=(x.cost||0)+(x.delivery||0);
+    const effUnits=x.receivedUnits||x.units||0;
+    const cpu=effUnits>0?t/effUnits:0;
+    const pays=getBatchPayments(x);
     const hasCogs=x.cogsItems&&x.cogsItems.length>0;
-    const hasWriteoffs=x.writeoffs&&x.writeoffs.length>0;
-    const ageDays=Math.round((Date.now()-new Date(x.date+'T00:00:00'))/864e5);
+    const hasPartial=x.receivedUnits&&x.units&&x.receivedUnits<x.units;
+    // Build compact payment badges
+    const payBadges=pays.map(p=>{
+      const isFounder=p.source==='founder';
+      const bg=isFounder?'rgba(168,85,247,.15)':'rgba(120,120,120,.1)';
+      const col=isFounder?'#a855f7':'var(--muted)';
+      const typeCol=p.type==='безнал'?'var(--info)':'var(--text)';
+      return`<span style="display:inline-flex;align-items:center;gap:3px;background:${bg};border-radius:6px;padding:2px 7px;font-size:10px;font-weight:700;color:${col};white-space:nowrap;margin:1px">
+        ${isFounder?'🙋':'💼'} <span style="color:${typeCol}">${p.type==='безнал'?'б/н':'нал'}</span>
+        <span style="font-family:\'JetBrains Mono\',monospace;color:var(--text)">${fr(p.amount||0)}</span>
+        <span style="color:var(--muted);font-weight:400">${fd(p.date||x.date)}</span>
+      </span>`;
+    }).join('');
     return`<tr>
-    <td>${fd(x.date)}<br><span style="font-size:10px;color:var(--muted)">${ageDays}д назад</span></td>
-    <td style="font-weight:600">${x.batchNum||'—'}</td><td>${x.paletType||'—'}</td>
-    <td class="r">${x.paletCount||'—'}</td><td class="r">${fr(x.cost)}</td>
+    <td>${fd(x.date)}</td><td style="font-weight:600">${x.batchNum||'—'}</td><td>${x.paletType||'—'}</td>
+    <td class="r">${x.paletCount||'—'}</td><td class="r">${x.cost?fr(x.cost):'—'}</td>
     <td class="r dim">${x.delivery?fr(x.delivery):'—'}</td>
-    <td class="r bad">${fr(t)}</td><td class="r">${x.units||'—'}</td>
+    <td class="r bad">${fr(t)}</td>
+    <td class="r">${x.units||'—'}</td>
+    <td class="r" style="${hasPartial?'color:var(--warning);font-weight:700':''}">${x.receivedUnits!=null?x.receivedUnits:'—'}${hasPartial?`<span style="font-size:10px;color:var(--muted)"> / ${x.units}</span>`:''}</td>
     <td class="r dim" style="font-size:12px">${cpu?fr(cpu):'—'}</td>
-    <td><span class="badge" style="${isFounder?'background:rgba(168,85,247,.15);color:#a855f7':'background:rgba(120,120,120,.1);color:var(--muted)'}">${isFounder?'🙋 Осн.':'💼 Бизнес'}</span></td>
-    <td><span class="badge ${x.payType==='безнал'?'b-info':'b-dim'}">${x.payType||'нал'}</span></td>
+    <td style="min-width:220px"><div style="display:flex;flex-wrap:wrap;gap:2px">${payBadges}</div></td>
     <td class="sticky-r"><div class="row-acts"><button class="btn-e" onclick="oEditBatch('${x.id}')">✏️</button><button class="btn-d" onclick="delBatch('${x.id}')">✕</button></div></td></tr>
-    ${hasCogs?`<tr style="background:rgba(249,115,22,.04)"><td colspan="12" style="padding:6px 14px 8px 28px">
+    ${hasCogs?`<tr style="background:rgba(249,115,22,.04)"><td colspan="12" style="padding:8px 14px 10px 28px">
       <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center">
-        <span style="font-size:10px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:.8px;margin-right:4px">📊 Метод 2:</span>
-        ${x.cogsItems.map((ci,i)=>{const color=TIER_COLORS[i%TIER_COLORS.length];return`<span style="background:${color}18;border:1px solid ${color}44;border-radius:6px;padding:2px 8px;font-size:11px;font-weight:700;color:${color};white-space:nowrap">${ci.label}: ${ci.unitCogs.toLocaleString('ru-RU')}₽ <span style="color:${ci.margin>0.5?'#22c55e':ci.margin>0.2?'#eab308':'#ef4444'}">${(ci.margin*100).toFixed(0)}%</span></span>`;}).join('')}
-      </div>
-    </td></tr>`:''}
-    ${hasWriteoffs?`<tr style="background:rgba(239,68,68,.03)"><td colspan="12" style="padding:4px 14px 6px 28px">
-      <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center">
-        <span style="font-size:10px;font-weight:700;color:var(--danger);text-transform:uppercase;letter-spacing:.8px;margin-right:4px">🗑 Списано:</span>
-        ${x.writeoffs.map(w=>`<span style="background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.3);border-radius:6px;padding:2px 8px;font-size:11px;font-weight:700;color:var(--danger);white-space:nowrap">${w.label}: ${w.qty}шт${w.reason?' · '+w.reason:''}</span>`).join('')}
+        <span style="font-size:10px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:.8px;margin-right:4px">📊 Себест. по кат. (Метод 2):</span>
+        ${x.cogsItems.map((c,i)=>{
+          const color=TIER_COLORS[i%TIER_COLORS.length];
+          return`<span style="background:${color}18;border:1px solid ${color}44;border-radius:6px;padding:3px 9px;font-size:11px;font-weight:700;color:${color};white-space:nowrap">
+            ${c.label}: <span style="font-family:'JetBrains Mono',monospace">${c.unitCogs.toLocaleString('ru-RU')}₽</span>
+            <span style="color:${c.margin>0.5?'#22c55e':c.margin>0.2?'#eab308':'#ef4444'};margin-left:3px">${(c.margin*100).toFixed(0)}%</span>
+          </span>`;
+        }).join('')}
       </div>
     </td></tr>`:''}`;
   }).join('')}
@@ -877,7 +792,235 @@ ${st.totalUnits>0?`<div class="card" style="margin-bottom:16px">
 </div>`;
 }
 
-// ─── COGS METHOD 2 ANALYTICS PAGE ───
+// ─── GOODS / INVENTORY ───
+function rGoods(){
+  const inv=inventory().sort((a,b)=>b.date.localeCompare(a.date));
+  const latest=inv[0];
+  const totalQty=latest?latest.items.reduce((a,x)=>a+(x.qty||0),0):0;
+  const totalVal=latest?latest.items.reduce((a,x)=>a+(x.val||0),0):0;
+  const lowStock=latest?latest.items.filter(x=>x.qty>0&&x.qty<10):[];
+  return`
+<div class="page-hdr"><div><div class="page-title">Товары & Остатки</div><div class="page-sub">Учёт складских остатков по категориям</div></div>
+<div style="display:flex;gap:10px">
+  <button class="btn btn-p" onclick="oInvEvotor()" style="background:var(--surface2);border:1px solid var(--accent);color:var(--accent)">📄 Загрузить остатки из Эвотора</button>
+  <button class="btn btn-p" onclick="oAddInv()">+ Вручную</button>
+</div></div>
+
+<div class="kpi-grid">
+  <div class="kpi"><div class="kpi-lbl">Позиций на складе</div><div class="kpi-val accent">${fn(totalQty)}</div></div>
+  <div class="kpi"><div class="kpi-lbl">Оценочная стоимость</div><div class="kpi-val">${fr(totalVal)}</div></div>
+  <div class="kpi"><div class="kpi-lbl">Категорий</div><div class="kpi-val">${latest?latest.items.filter(x=>x.qty>0).length:0}</div></div>
+  <div class="kpi"><div class="kpi-lbl">Мало остатков (<10)</div><div class="kpi-val ${lowStock.length>0?'bad':''}">${lowStock.length}</div></div>
+  <div class="kpi"><div class="kpi-lbl">Дата обновления</div><div class="kpi-val" style="font-size:13px">${latest?fd(latest.date):'—'}</div></div>
+</div>
+
+${latest?`
+<div class="card" style="margin-bottom:16px">
+  <div class="card-hdr"><h3>📦 Актуальные остатки — ${fd(latest.date)}</h3><button class="btn-e" onclick="oEditInv('${latest.id}')">✏️ Редактировать</button></div>
+  <table><thead><tr><th>Категория</th><th class="r">Остаток (шт)</th><th class="r">Ср. цена</th><th class="r">Стоимость</th><th>Статус</th></tr></thead>
+  <tbody>${latest.items.sort((a,b)=>(b.qty||0)-(a.qty||0)).map(x=>{
+    const st=x.qty===0?'b-bad':x.qty<10?'b-warn':'b-ok';
+    const sl=x.qty===0?'❌ Нет':x.qty<10?'⚠️ Мало':'✅ Есть';
+    return`<tr>
+      <td style="font-weight:500">${x.cat||'—'}</td>
+      <td class="r" style="font-weight:700;color:${x.qty===0?'var(--danger)':x.qty<10?'var(--warning)':'var(--success)'}">${x.qty||0}</td>
+      <td class="r dim">${x.avgPrice?fr(x.avgPrice):'—'}</td>
+      <td class="r">${x.val?fr(x.val):'—'}</td>
+      <td><span class="badge ${st}">${sl}</span></td></tr>`;
+  }).join('')}
+  </tbody></table>
+</div>`:'<div class="card"><div class="empty">Нет данных. Загрузи остатки из Эвотора или добавь вручную.</div></div>'}
+
+${inv.length>1?`
+<div class="card">
+  <div class="card-hdr"><h3>📅 История снимков</h3></div>
+  <table><thead><tr><th>Дата</th><th class="r">Позиций</th><th class="r">Кол-во</th><th class="r">Стоимость</th><th>Примечание</th><th></th></tr></thead>
+  <tbody>${inv.map(s=>{const q=s.items.reduce((a,x)=>a+(x.qty||0),0),v=s.items.reduce((a,x)=>a+(x.val||0),0);return`<tr>
+    <td>${fd(s.date)}</td><td class="r">${s.items.filter(x=>x.qty>0).length}</td>
+    <td class="r" style="color:var(--accent)">${fn(q)}</td><td class="r">${fr(v)}</td>
+    <td class="dim" style="font-size:12px">${s.note||''}</td>
+    <td><div class="row-acts"><button class="btn-e" onclick="oEditInv('${s.id}')">✏️</button><button class="btn-d" onclick="delInv('${s.id}')">✕</button></div></td></tr>`;}).join('')}
+  </tbody></table>
+</div>`:''}`;
+}
+
+// ─── P&L ───
+function rPnL(){
+  const p=calcPnL(pnlF,pnlT);
+  const opItems=Object.entries(p.bycat).filter(([k])=>k!=='Товар/Палеты'&&k!=='Доставка'&&p.bycat[k]>0);
+  return`
+<div class="page-hdr"><div><div class="page-title">P&L — Прибыли и убытки</div><div class="page-sub">Отчёт за выбранный период</div></div></div>
+<div class="fbar">
+  <label>С:</label>
+  <input type="date" value="${pnlF}" style="width:155px" onchange="pnlF=this.value;render()">
+  <label>По:</label>
+  <input type="date" value="${pnlT}" style="width:155px" onchange="pnlT=this.value;render()">
+</div>
+<div class="pnl-blk">
+  <div class="pnl-r hd"><span>🔷 Выручка</span><span class="pnl-n" style="color:var(--accent)">${fr(p.rev)}</span></div>
+  <div class="pnl-r sub"><span>Наличные</span><span class="pnl-n">${fr(p.rn)}</span></div>
+  <div class="pnl-r sub"><span>Безналичные</span><span class="pnl-n">${fr(p.rb)}</span></div>
+</div>
+<div class="pnl-blk">
+  <div class="pnl-r hd"><span>📦 Себестоимость (Партии)</span><span class="pnl-n bad">${fr(p.cogs)}</span></div>
+  <div class="pnl-r sub"><span>Закупка товара</span><span class="pnl-n">${fr(p.cb)}</span></div>
+  <div class="pnl-r sub"><span>Доставка</span><span class="pnl-n">${fr(p.cd)}</span></div>
+</div>
+<div class="pnl-blk">
+  <div class="pnl-r tot"><span>💰 Валовая прибыль</span><span class="pnl-n ${p.gp>=0?'ok':'bad'}">${fr(p.gp)} <span style="font-size:11px;color:var(--muted)">${fp(p.gm)}</span></span></div>
+</div>
+<div class="pnl-blk">
+  <div class="pnl-r hd"><span>📋 Операционные расходы</span><span class="pnl-n bad">${fr(p.opexp)}</span></div>
+  ${opItems.length===0?'<div class="pnl-r sub"><span>Нет операционных расходов</span><span>—</span></div>':opItems.map(([k,v])=>`<div class="pnl-r sub"><span>${k}</span><span class="pnl-n">${fr(v)}</span></div>`).join('')}
+</div>
+<div class="pnl-blk">
+  <div class="pnl-r tot"><span>📊 EBITDA</span><span class="pnl-n ${p.ebitda>=0?'ok':'bad'}">${fr(p.ebitda)} <span style="font-size:11px;color:var(--muted)">${fp(p.em)}</span></span></div>
+</div>
+<div class="pnl-blk">
+  <div class="pnl-r hd"><span>🗑 Налог АУСН</span><span class="pnl-n">${fr(p.tax)}</span></div>
+</div>
+<div class="pnl-blk">
+  <div class="pnl-r tot" style="padding:16px 18px">
+    <span style="font-size:15px">✅ Чистая прибыль</span>
+    <span class="pnl-n" style="font-size:22px;color:${p.net>=0?'var(--success)':'var(--danger)'}">${fr(p.net)}</span>
+  </div>
+  <div class="pnl-r sub"><span>Чистая маржа</span><span class="pnl-n">${fp(p.nm)}</span></div>
+</div>`;
+}
+
+// ─── COGS PAGE (Себестоимость) ───
+function calcMethod2Cogs(salesList){
+  const bb=batches().filter(x=>x.cogsItems&&x.cogsItems.length>0);
+  if(!bb.length)return null;
+  let totalInvested=0,totalPotRev=0;
+  bb.forEach(b=>{
+    totalInvested+=(b.cost||0)+(b.delivery||0);
+    b.cogsItems.forEach(ci=>{totalPotRev+=(ci.qty||0)*(ci.price||0);});
+  });
+  if(!totalPotRev)return null;
+  const k=totalInvested/totalPotRev;
+  const cats=priceCats();
+  const cogsByTier={};
+  cats.forEach(c=>{cogsByTier[c.key]={key:c.key,label:c.label,price:c.price,qty:0,rev:0,cogs:0,profit:0};});
+  let totalCogs=0,totalRevSold=0;
+  (salesList||[]).forEach(s=>{
+    const sRev=(s.nal||0)+(s.beznal||0);
+    if(s.priceCats){
+      cats.forEach(c=>{
+        if(!s.priceCats[c.key])return;
+        const qty=s.priceCats[c.key].qty||0;
+        const rev=s.priceCats[c.key].rev||(qty*c.price);
+        const cogs=rev*k;
+        cogsByTier[c.key].qty+=qty;
+        cogsByTier[c.key].rev+=rev;
+        cogsByTier[c.key].cogs+=cogs;
+        cogsByTier[c.key].profit+=(rev-cogs);
+        totalCogs+=cogs;totalRevSold+=rev;
+      });
+    } else {
+      // No tier data — attribute COGS proportionally to total revenue
+      const revCogs=sRev*k;
+      totalCogs+=revCogs;totalRevSold+=sRev;
+    }
+  });
+  return{k,totalCogs,totalRevSold,cogsByTier,tierRows:Object.values(cogsByTier).filter(c=>c.qty>0)};
+}
+
+function calcSellThrough(){
+  const bb=batches();
+  const ss=sales();
+  const cats=priceCats();
+  // Purchased per tier from cogsItems
+  const purchased={};cats.forEach(c=>{purchased[c.key]=0;});
+  bb.forEach(b=>{if(b.cogsItems)b.cogsItems.forEach(ci=>{purchased[ci.key]=(purchased[ci.key]||0)+(ci.qty||0);});});
+  // Written-off per tier
+  const writtenOff={};cats.forEach(c=>{writtenOff[c.key]=0;});
+  bb.forEach(b=>{if(b.writeoffs)b.writeoffs.forEach(w=>{writtenOff[w.key]=(writtenOff[w.key]||0)+(w.qty||0);});});
+  // Sold per tier
+  const sold={};cats.forEach(c=>{sold[c.key]=0;});
+  ss.forEach(s=>{if(!s.priceCats)return;cats.forEach(c=>{if(s.priceCats[c.key])sold[c.key]+=(s.priceCats[c.key].qty||0);});});
+  const totalPurchasedTier=Object.values(purchased).reduce((a,v)=>a+v,0);
+  const totalBatchUnits=bb.reduce((a,b)=>a+(b.units||0),0);
+  const totalSoldTier=Object.values(sold).reduce((a,v)=>a+v,0);
+  const totalWrittenOff=Object.values(writtenOff).reduce((a,v)=>a+v,0);
+  const totalUnits=totalPurchasedTier>0?totalPurchasedTier:totalBatchUnits;
+  const remaining=Math.max(0,totalUnits-totalSoldTier-totalWrittenOff);
+  // Daily avg sold (last 30 days)
+  const t30=new Date(Date.now()-30*864e5).toISOString().slice(0,10);
+  const recent=ss.filter(s=>s.date>=t30);
+  const recentQty=recent.reduce((a,s)=>{const ts=tierSums(s);return a+(ts?ts.qty:(s.nalChecks||0)+(s.beznalChecks||0));},0);
+  const dailyAvg=recentQty/30;
+  const daysLeft=dailyAvg>0?remaining/dailyAvg:null;
+  // Frozen capital in remaining stock
+  const m2=calcMethod2Cogs([]);
+  const k=m2?m2.k:0;
+  const avgPricePerUnit=totalUnits>0?(()=>{let s=0;cats.forEach(c=>{s+=purchased[c.key]*c.price;});return s/totalUnits;})():0;
+  const frozenCapital=remaining*avgPricePerUnit*k;
+  return{totalUnits,totalSoldTier,totalWrittenOff,remaining,
+    sellPct:totalUnits>0?totalSoldTier/totalUnits:0,
+    dailyAvg,daysLeft,frozenCapital,purchased,sold,writtenOff,cats};
+}
+
+function calcABC(salesList){
+  const cats=priceCats();
+  const tierData={};
+  cats.forEach((c,i)=>{tierData[c.key]={key:c.key,label:c.label,price:c.price,idx:i,qty:0,rev:0,profit:0};});
+  const m2=calcMethod2Cogs(salesList);
+  const k=m2?m2.k:0;
+  (salesList||[]).forEach(s=>{
+    if(!s.priceCats)return;
+    cats.forEach(c=>{
+      if(!s.priceCats[c.key])return;
+      const qty=s.priceCats[c.key].qty||0;
+      const rev=s.priceCats[c.key].rev||(qty*c.price);
+      tierData[c.key].qty+=qty;
+      tierData[c.key].rev+=rev;
+      tierData[c.key].profit+=rev*(1-k);
+    });
+  });
+  const rows=Object.values(tierData).filter(d=>d.qty>0).sort((a,b)=>b.rev-a.rev);
+  const totalRev=rows.reduce((a,r)=>a+r.rev,0);
+  let cumRev=0;
+  rows.forEach(r=>{cumRev+=r.rev;r.cumRevPct=totalRev>0?cumRev/totalRev:0;r.revPct=totalRev>0?r.rev/totalRev:0;r.abc=r.cumRevPct<=0.8?'A':r.cumRevPct<=0.95?'B':'C';});
+  return rows;
+}
+
+function writeoffFormHtml(writeoffs){
+  const cats=priceCats();
+  const existing={};
+  if(writeoffs)writeoffs.forEach(w=>{existing[w.key]=w;});
+  return`<div style="border:1px solid rgba(239,68,68,.3);border-radius:10px;overflow:hidden;margin-top:4px">
+  <div style="background:rgba(239,68,68,.08);padding:10px 16px;display:flex;justify-content:space-between;align-items:center">
+    <div>
+      <div style="font-size:12px;font-weight:700;color:var(--danger)">🗑 Списания / Брак</div>
+      <div style="font-size:10px;color:var(--muted);margin-top:1px">Вещи, которые не продались и списаны</div>
+    </div>
+  </div>
+  <div style="display:grid;grid-template-columns:100px 80px 1fr;gap:0;background:var(--surface2);border-top:1px solid rgba(239,68,68,.2);padding:6px 14px">
+    <div style="font-size:9px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.8px">Категория</div>
+    <div style="font-size:9px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.8px;text-align:center">Списано шт</div>
+    <div style="font-size:9px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.8px;padding-left:8px">Причина</div>
+  </div>
+  ${cats.map(t=>`<div style="display:grid;grid-template-columns:100px 80px 1fr;align-items:center;padding:6px 14px;border-top:1px solid rgba(255,255,255,.03)">
+    <div style="font-size:13px;font-weight:700;color:var(--muted)">${t.label}<br><span style="font-size:10px;font-weight:400">${t.price.toLocaleString('ru-RU')}₽</span></div>
+    <div><input type="number" class="wo-qty" data-key="${t.key}" data-label="${t.label}" placeholder="0" min="0" value="${existing[t.key]?existing[t.key].qty:''}" style="width:100%;padding:5px 8px;font-size:13px;text-align:center;background:var(--surface2);border:1px solid rgba(239,68,68,.3);border-radius:7px;color:var(--danger);font-family:'Montserrat',sans-serif;outline:none"></div>
+    <div style="padding-left:8px"><input type="text" class="wo-reason" data-key="${t.key}" placeholder="брак, не продалось..." value="${existing[t.key]?existing[t.key].reason||'':''}" style="width:100%;padding:5px 8px;font-size:12px;background:var(--surface2);border:1px solid var(--border);border-radius:7px;color:var(--muted);font-family:'Montserrat',sans-serif;outline:none"></div>
+  </div>`).join('')}
+</div>`;
+}
+
+function readWriteoffs(){
+  const items=[];
+  document.querySelectorAll('.wo-qty').forEach(el=>{
+    const qty=+el.value||0;
+    if(qty>0){
+      const reason=document.querySelector(`.wo-reason[data-key="${el.dataset.key}"]`)?.value||'';
+      items.push({key:el.dataset.key,label:el.dataset.label,qty,reason});
+    }
+  });
+  return items.length>0?items:null;
+}
+
 function rCogsPage(){
   const bb=batches();
   const cogsBatches=bb.filter(x=>x.cogsItems&&x.cogsItems.length>0).sort((a,b)=>b.date.localeCompare(a.date));
@@ -1133,129 +1276,35 @@ ${cogsBatches.length>0?`<div class="card" style="margin-bottom:20px">
 </div>`;
 }
 
-// ─── GOODS / INVENTORY ───
-function rGoods(){
-  const inv=inventory().sort((a,b)=>b.date.localeCompare(a.date));
-  const latest=inv[0];
-  const totalQty=latest?latest.items.reduce((a,x)=>a+(x.qty||0),0):0;
-  const totalVal=latest?latest.items.reduce((a,x)=>a+(x.val||0),0):0;
-  const lowStock=latest?latest.items.filter(x=>x.qty>0&&x.qty<10):[];
-  return`
-<div class="page-hdr"><div><div class="page-title">Товары & Остатки</div><div class="page-sub">Учёт складских остатков по категориям</div></div>
-<div style="display:flex;gap:10px">
-  <button class="btn btn-p" onclick="oInvEvotor()" style="background:var(--surface2);border:1px solid var(--accent);color:var(--accent)">📄 Загрузить остатки из Эвотора</button>
-  <button class="btn btn-p" onclick="oAddInv()">+ Вручную</button>
-</div></div>
-
-<div class="kpi-grid">
-  <div class="kpi"><div class="kpi-lbl">Позиций на складе</div><div class="kpi-val accent">${fn(totalQty)}</div></div>
-  <div class="kpi"><div class="kpi-lbl">Оценочная стоимость</div><div class="kpi-val">${fr(totalVal)}</div></div>
-  <div class="kpi"><div class="kpi-lbl">Категорий</div><div class="kpi-val">${latest?latest.items.filter(x=>x.qty>0).length:0}</div></div>
-  <div class="kpi"><div class="kpi-lbl">Мало остатков (<10)</div><div class="kpi-val ${lowStock.length>0?'bad':''}">${lowStock.length}</div></div>
-  <div class="kpi"><div class="kpi-lbl">Дата обновления</div><div class="kpi-val" style="font-size:13px">${latest?fd(latest.date):'—'}</div></div>
-</div>
-
-${latest?`
-<div class="card" style="margin-bottom:16px">
-  <div class="card-hdr"><h3>📦 Актуальные остатки — ${fd(latest.date)}</h3><button class="btn-e" onclick="oEditInv('${latest.id}')">✏️ Редактировать</button></div>
-  <table><thead><tr><th>Категория</th><th class="r">Остаток (шт)</th><th class="r">Ср. цена</th><th class="r">Стоимость</th><th>Статус</th></tr></thead>
-  <tbody>${latest.items.sort((a,b)=>(b.qty||0)-(a.qty||0)).map(x=>{
-    const st=x.qty===0?'b-bad':x.qty<10?'b-warn':'b-ok';
-    const sl=x.qty===0?'❌ Нет':x.qty<10?'⚠️ Мало':'✅ Есть';
-    return`<tr>
-      <td style="font-weight:500">${x.cat||'—'}</td>
-      <td class="r" style="font-weight:700;color:${x.qty===0?'var(--danger)':x.qty<10?'var(--warning)':'var(--success)'}">${x.qty||0}</td>
-      <td class="r dim">${x.avgPrice?fr(x.avgPrice):'—'}</td>
-      <td class="r">${x.val?fr(x.val):'—'}</td>
-      <td><span class="badge ${st}">${sl}</span></td></tr>`;
-  }).join('')}
-  </tbody></table>
-</div>`:'<div class="card"><div class="empty">Нет данных. Загрузи остатки из Эвотора или добавь вручную.</div></div>'}
-
-${inv.length>1?`
-<div class="card">
-  <div class="card-hdr"><h3>📅 История снимков</h3></div>
-  <table><thead><tr><th>Дата</th><th class="r">Позиций</th><th class="r">Кол-во</th><th class="r">Стоимость</th><th>Примечание</th><th></th></tr></thead>
-  <tbody>${inv.map(s=>{const q=s.items.reduce((a,x)=>a+(x.qty||0),0),v=s.items.reduce((a,x)=>a+(x.val||0),0);return`<tr>
-    <td>${fd(s.date)}</td><td class="r">${s.items.filter(x=>x.qty>0).length}</td>
-    <td class="r" style="color:var(--accent)">${fn(q)}</td><td class="r">${fr(v)}</td>
-    <td class="dim" style="font-size:12px">${s.note||''}</td>
-    <td><div class="row-acts"><button class="btn-e" onclick="oEditInv('${s.id}')">✏️</button><button class="btn-d" onclick="delInv('${s.id}')">✕</button></div></td></tr>`;}).join('')}
-  </tbody></table>
-</div>`:''}`;
-}
-
-// ─── P&L ───
-function rPnL(){
-  const p=calcPnL(pnlF,pnlT);
-  const opItems=Object.entries(p.bycat).filter(([k])=>k!=='Товар/Палеты'&&k!=='Доставка'&&p.bycat[k]>0);
-  const isM2=p.cogsMethod==='method2';
-  return`
-<div class="page-hdr"><div><div class="page-title">P&L — Прибыли и убытки</div><div class="page-sub">Отчёт за выбранный период${isM2?' · Себестоимость по Методу 2':''}</div></div></div>
-<div class="fbar">
-  <label>С:</label>
-  <input type="date" value="${pnlF}" style="width:155px" onchange="pnlF=this.value;render()">
-  <label>По:</label>
-  <input type="date" value="${pnlT}" style="width:155px" onchange="pnlT=this.value;render()">
-</div>
-${isM2?`<div style="background:rgba(34,197,94,.07);border:1px solid rgba(34,197,94,.25);border-radius:10px;padding:11px 18px;margin-bottom:16px;font-size:12px;color:var(--muted);display:flex;align-items:center;gap:10px">
-  <span style="font-size:18px">✅</span>
-  <div><b style="color:var(--success)">Себестоимость рассчитана по Методу 2</b> — k=${p.m2.k.toFixed(4)} · из фактических продаж по тирам, не по дате закупки.<br>
-  <span style="color:var(--warning)">По дате закупки партий было бы ${fr(p.cogsBatchDate)}</span></div>
-</div>`:`<div style="background:rgba(234,179,8,.07);border:1px solid rgba(234,179,8,.25);border-radius:10px;padding:11px 18px;margin-bottom:16px;font-size:12px;color:var(--muted)">
-  ⚠️ <b style="color:var(--warning)">Метод 2 недоступен</b> — заполни «Себестоимость по категориям» хотя бы в одной партии. Сейчас COGS = сумма закупок за период.
-</div>`}
-<div class="pnl-blk">
-  <div class="pnl-r hd"><span>🔷 Выручка</span><span class="pnl-n" style="color:var(--accent)">${fr(p.rev)}</span></div>
-  <div class="pnl-r sub"><span>Наличные</span><span class="pnl-n">${fr(p.rn)}</span></div>
-  <div class="pnl-r sub"><span>Безналичные</span><span class="pnl-n">${fr(p.rb)}</span></div>
-</div>
-<div class="pnl-blk">
-  <div class="pnl-r hd"><span>📦 Себестоимость ${isM2?'(Метод 2 — по продажам)':'(по дате закупки)'}</span><span class="pnl-n bad">${fr(p.cogs)}</span></div>
-  ${isM2&&p.m2&&p.m2.tierRows.length>0?p.m2.tierRows.map(r=>`<div class="pnl-r sub"><span>${r.label} · ${r.qty}шт · ${r.price.toLocaleString('ru-RU')}₽/шт</span><span class="pnl-n">${fr(r.cogs)} <span style="color:var(--success);font-size:10px">+${fr(r.profit)} маржа</span></span></div>`).join(''):`<div class="pnl-r sub"><span>Закупка товара</span><span class="pnl-n">${fr(p.cb)}</span></div><div class="pnl-r sub"><span>Доставка</span><span class="pnl-n">${fr(p.cd)}</span></div>`}
-</div>
-<div class="pnl-blk">
-  <div class="pnl-r tot"><span>💰 Валовая прибыль</span><span class="pnl-n ${p.gp>=0?'ok':'bad'}">${fr(p.gp)} <span style="font-size:11px;color:var(--muted)">${fp(p.gm)}</span></span></div>
-</div>
-<div class="pnl-blk">
-  <div class="pnl-r hd"><span>📋 Операционные расходы</span><span class="pnl-n bad">${fr(p.opexp)}</span></div>
-  ${opItems.length===0?'<div class="pnl-r sub"><span>Нет операционных расходов</span><span>—</span></div>':opItems.map(([k,v])=>`<div class="pnl-r sub"><span>${k}</span><span class="pnl-n">${fr(v)}</span></div>`).join('')}
-</div>
-<div class="pnl-blk">
-  <div class="pnl-r tot"><span>📊 EBITDA</span><span class="pnl-n ${p.ebitda>=0?'ok':'bad'}">${fr(p.ebitda)} <span style="font-size:11px;color:var(--muted)">${fp(p.em)}</span></span></div>
-</div>
-<div class="pnl-blk">
-  <div class="pnl-r hd"><span>🗑 Налог АУСН</span><span class="pnl-n">${fr(p.tax)}</span></div>
-</div>
-<div class="pnl-blk">
-  <div class="pnl-r tot" style="padding:16px 18px">
-    <span style="font-size:15px">✅ Чистая прибыль</span>
-    <span class="pnl-n" style="font-size:22px;color:${p.net>=0?'var(--success)':'var(--danger)'}">${fr(p.net)}</span>
-  </div>
-  <div class="pnl-r sub"><span>Чистая маржа</span><span class="pnl-n">${fp(p.nm)}</span></div>
-</div>`;
-}
 // ─── CASHFLOW ───
 function rCash(){
   const bal=calcBal(),s=cfg();
-  const allD=new Set([...sales().map(x=>x.date),...exps().map(x=>x.date),...batches().map(x=>x.date)]);
+  // Collect all unique dates: sales, expenses, AND each individual batch payment date
+  const allD=new Set([
+    ...sales().map(x=>x.date),
+    ...exps().map(x=>x.date),
+    ...batches().flatMap(x=>getBatchPayments(x).map(p=>p.date||x.date))
+  ]);
   const dates=Array.from(allD).sort();
   let c=s.cashBalance||0,b=s.beznalBalance||0;
   const rows=dates.map(d=>{
     const ds=sales().filter(x=>x.date===d);
     // Only business-funded expenses affect cash
     const de=exps().filter(x=>x.date===d&&x.category!=='Товар/Палеты'&&x.category!=='Доставка'&&x.fundSource!=='founder');
-    // Only business-funded batches affect cash
-    const db=batches().filter(x=>x.date===d&&x.fundSource!=='founder');
+    // Collect all business batch payments for this date (across all batches, by payment date)
+    const bPays=[];
+    batches().forEach(x=>getBatchPayments(x).forEach(p=>{
+      if((p.date||x.date)===d&&p.source!=='founder')bPays.push(p);
+    }));
     const inc=(ds.reduce((a,x)=>a+(x.nal||0),0));
     const inb=(ds.reduce((a,x)=>a+(x.beznal||0),0));
-    const outc=de.reduce((a,x)=>a+(x.nal||0),0)+db.filter(x=>x.payType!=='безнал').reduce((a,x)=>a+(x.cost||0)+(x.delivery||0),0);
-    const outb=de.reduce((a,x)=>a+(x.beznal||0),0)+db.filter(x=>x.payType==='безнал').reduce((a,x)=>a+(x.cost||0)+(x.delivery||0),0);
+    const outc=de.reduce((a,x)=>a+(x.nal||0),0)+bPays.filter(p=>p.type!=='безнал').reduce((a,p)=>a+(p.amount||0),0);
+    const outb=de.reduce((a,x)=>a+(x.beznal||0),0)+bPays.filter(p=>p.type==='безнал').reduce((a,p)=>a+(p.amount||0),0);
     c+=inc-outc;b+=inb-outb;
     return{d,inc,inb,outc,outb,c,b};
   });
   const founderExp=exps().filter(x=>x.fundSource==='founder'&&x.category!=='Товар/Палеты'&&x.category!=='Доставка').reduce((a,x)=>a+(x.nal||0)+(x.beznal||0),0);
-  const founderBatch=batches().filter(x=>x.fundSource==='founder').reduce((a,x)=>a+(x.cost||0)+(x.delivery||0),0);
+  const founderBatch=batches().flatMap(x=>getBatchPayments(x)).filter(p=>p.source==='founder').reduce((a,p)=>a+(p.amount||0),0);
   const founderTotal=founderExp+founderBatch;
   return`
 <div class="page-hdr"><div><div class="page-title">Кэш-флоу</div><div class="page-sub">Динамика движения денег бизнеса</div></div></div>
@@ -1284,13 +1333,11 @@ ${founderTotal>0?`<div style="background:rgba(168,85,247,.06);border:1px solid r
 // ─── DYNAMICS ───
 function rDyn(){
   const mm=calcDyn().reverse();
-  const cats=priceCats();
-  const hasTierData=mm.some(m=>m.tierMo&&Object.values(m.tierMo).some(v=>v.qty>0));
   return`
 <div class="page-hdr"><div><div class="page-title">Динамика по месяцам</div><div class="page-sub">Сводка автоматически из всех разделов</div></div></div>
-<div class="card" style="margin-bottom:20px">
+<div class="card">
   ${mm.length===0?'<div class="empty">Данных пока нет</div>':`
-  <div class="tbl-wrap"><table><thead><tr><th>Месяц</th><th class="r">Выручка</th><th class="r">Расходы</th><th class="r">Себест.</th><th class="r">Вал. прибыль</th><th class="r">Налог</th><th class="r">Чистая прибыль</th><th class="r">Штук</th><th class="r">Ср. цена/шт</th></tr></thead>
+  <table><thead><tr><th>Месяц</th><th class="r">Выручка</th><th class="r">Расходы</th><th class="r">Себест.</th><th class="r">Вал. прибыль</th><th class="r">Налог</th><th class="r">Чистая прибыль</th><th class="r">Штук</th><th class="r">Ср. цена/шт</th></tr></thead>
   <tbody>${mm.map(m=>`<tr>
     <td style="font-weight:600">${ml(m.ym)}</td>
     <td class="r" style="color:var(--accent)">${fr(m.rev)}</td>
@@ -1300,29 +1347,8 @@ function rDyn(){
     <td class="r" style="font-weight:700;color:${m.net>=0?'var(--success)':'var(--danger)'}">${fr(m.net)}</td>
     <td class="r dim">${fn(m.items||m.chk)}</td>
     <td class="r">${m.avg?fr(m.avg):'—'}</td></tr>`).join('')}
-  </tbody></table></div>`}
-</div>
-
-${hasTierData?`<div class="card">
-  <div class="card-hdr"><h3>🌡 Сезонность по ценовым категориям</h3><span style="font-size:12px;color:var(--muted)">Продажи по тирам помесячно</span></div>
-  <div class="tbl-wrap"><table>
-    <thead><tr><th>Месяц</th>${cats.map((c,i)=>`<th class="r" style="color:${TIER_COLORS[i%TIER_COLORS.length]}">${c.label}<br><span style="font-size:9px;color:var(--muted)">${c.price.toLocaleString('ru-RU')}₽</span></th>`).join('')}<th class="r">Итого шт</th></tr></thead>
-    <tbody>${mm.filter(m=>m.tierMo&&Object.values(m.tierMo).some(v=>v.qty>0)).map(m=>{
-      const totQ=cats.reduce((a,c)=>a+(m.tierMo[c.key]?.qty||0),0);
-      return`<tr>
-        <td style="font-weight:600">${ml(m.ym)}</td>
-        ${cats.map((c,i)=>{
-          const q=m.tierMo[c.key]?.qty||0;
-          const pct=totQ>0?Math.round(q/totQ*100):0;
-          const color=TIER_COLORS[i%TIER_COLORS.length];
-          return`<td class="r">${q>0?`<span style="font-weight:700;color:${color}">${q}</span><br><span style="font-size:10px;color:var(--muted)">${pct}%</span>`:'—'}</td>`;
-        }).join('')}
-        <td class="r" style="font-weight:700">${fn(totQ)}</td>
-      </tr>`;
-    }).join('')}
-    </tbody>
-  </table></div>
-</div>`:''}`;
+  </tbody></table>`}
+</div>`;
 }
 
 // ─── PLAN vs FACT ───
@@ -1538,6 +1564,111 @@ function readTiers(){
   return Object.keys(pc).length>0?pc:null;
 }
 
+// ═══ BATCH MULTI-PAYMENT FORM ═══
+let _batchPayRows=[]; // working copy while editing
+
+function initBatchPayRows(payments,batchDate){
+  // Build initial rows from existing payments or a default empty row
+  if(payments&&payments.length>0){
+    _batchPayRows=payments.map(p=>({...p}));
+  } else {
+    _batchPayRows=[{id:gid(),source:'business',type:'нал',amount:'',date:batchDate||today()}];
+  }
+}
+
+function renderPaymentsBlock(){
+  const total=_batchPayRows.reduce((a,p)=>a+(+p.amount||0),0);
+  const costEl=document.getElementById('fcost'),delEl=document.getElementById('fdel');
+  const expectedTotal=(+costEl?.value||0)+(+delEl?.value||0);
+  const diff=expectedTotal-total;
+  const diffColor=Math.abs(diff)<1?'var(--success)':diff>0?'var(--warning)':'var(--danger)';
+  const diffText=Math.abs(diff)<1?'✅ Совпадает с суммой товара+доставки':diff>0?`⚠️ Не распределено: ${fr(diff)}`:`⚠️ Превышает на: ${fr(-diff)}`;
+
+  document.getElementById('pay-rows-wrap').innerHTML=_batchPayRows.map((p,i)=>`
+  <div style="display:grid;grid-template-columns:140px 90px 120px 150px 32px;gap:8px;align-items:center;padding:8px 0;border-bottom:1px solid rgba(255,255,255,.05)">
+    <select onchange="_batchPayRows[${i}].source=this.value;renderPaymentsBlock()"
+      style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);padding:7px 10px;font-family:'Montserrat',sans-serif;font-size:12px;font-weight:600;outline:none">
+      <option value="business" ${p.source==='business'?'selected':''}>💼 Оборотка</option>
+      <option value="founder" ${p.source==='founder'?'selected':''}>🙋 Основатель</option>
+    </select>
+    <select onchange="_batchPayRows[${i}].type=this.value"
+      style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);padding:7px 10px;font-family:'Montserrat',sans-serif;font-size:12px;font-weight:600;outline:none">
+      <option value="нал" ${p.type!=='безнал'?'selected':''}>💵 Нал</option>
+      <option value="безнал" ${p.type==='безнал'?'selected':''}>💳 Безнал</option>
+    </select>
+    <input type="number" placeholder="Сумма ₽" min="0" value="${p.amount||''}"
+      oninput="_batchPayRows[${i}].amount=+this.value||0;updatePayDiff()"
+      style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);padding:7px 10px;font-family:'JetBrains Mono','Montserrat',sans-serif;font-size:13px;outline:none;width:100%">
+    <input type="date" value="${p.date||today()}"
+      onchange="_batchPayRows[${i}].date=this.value"
+      style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);padding:7px 10px;font-family:'Montserrat',sans-serif;font-size:12px;outline:none;width:100%">
+    <button onclick="_batchPayRows.splice(${i},1);renderPaymentsBlock()"
+      style="background:none;border:1px solid var(--danger);color:var(--danger);border-radius:6px;width:28px;height:28px;cursor:pointer;font-size:14px;display:flex;align-items:center;justify-content:center;flex-shrink:0"
+      ${_batchPayRows.length<=1?'disabled style="opacity:.3;cursor:not-allowed;border-color:var(--border);color:var(--muted)"':''}>✕</button>
+  </div>`).join('');
+
+  const diffEl=document.getElementById('pay-diff');
+  if(diffEl){diffEl.textContent=diffText;diffEl.style.color=diffColor;}
+  const totEl=document.getElementById('pay-total');
+  if(totEl)totEl.textContent=fr(total);
+}
+
+function updatePayDiff(){
+  const total=_batchPayRows.reduce((a,p)=>a+(+p.amount||0),0);
+  const costEl=document.getElementById('fcost'),delEl=document.getElementById('fdel');
+  const expectedTotal=(+costEl?.value||0)+(+delEl?.value||0);
+  const diff=expectedTotal-total;
+  const diffEl=document.getElementById('pay-diff');
+  const diffColor=Math.abs(diff)<1?'var(--success)':diff>0?'var(--warning)':'var(--danger)';
+  const diffText=Math.abs(diff)<1?'✅ Совпадает с суммой товара+доставки':diff>0?`⚠️ Не распределено: ${fr(diff)}`:`⚠️ Превышает на: ${fr(-diff)}`;
+  if(diffEl){diffEl.textContent=diffText;diffEl.style.color=diffColor;}
+  const totEl=document.getElementById('pay-total');
+  if(totEl)totEl.textContent=fr(total);
+}
+
+function addPayRow(){
+  const lastDate=_batchPayRows.length>0?_batchPayRows[_batchPayRows.length-1].date:today();
+  _batchPayRows.push({id:gid(),source:'business',type:'нал',amount:'',date:lastDate});
+  renderPaymentsBlock();
+  // Focus the new amount input
+  setTimeout(()=>{
+    const inputs=document.querySelectorAll('#pay-rows-wrap input[type="number"]');
+    if(inputs.length>0)inputs[inputs.length-1].focus();
+  },50);
+}
+
+function paymentsBlockHtml(initDate){
+  return`<div style="border:1px solid var(--border);border-radius:10px;overflow:hidden;margin-top:4px">
+  <div style="background:var(--surface2);padding:10px 16px;display:flex;justify-content:space-between;align-items:center">
+    <div>
+      <div style="font-size:12px;font-weight:700;color:var(--accent)">💳 Оплата партии — разбивка по источникам</div>
+      <div style="font-size:10px;color:var(--muted);margin-top:2px">Каждый платёж — отдельная строка. Дата платежа фиксируется в кэш-флоу</div>
+    </div>
+    <span id="pay-total" style="font-family:'JetBrains Mono',monospace;font-size:13px;font-weight:700;color:var(--accent)">0 ₽</span>
+  </div>
+  <div style="padding:0 14px">
+    <div style="display:grid;grid-template-columns:140px 90px 120px 150px 32px;gap:8px;padding:7px 0;border-bottom:1px solid var(--border)">
+      <div style="font-size:9px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.8px">Источник</div>
+      <div style="font-size:9px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.8px">Тип</div>
+      <div style="font-size:9px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.8px">Сумма ₽</div>
+      <div style="font-size:9px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.8px">Дата платежа</div>
+      <div></div>
+    </div>
+    <div id="pay-rows-wrap"></div>
+  </div>
+  <div style="padding:10px 14px;border-top:1px solid var(--border);background:var(--surface2);display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+    <button onclick="addPayRow()" style="background:none;border:1px solid var(--accent);color:var(--accent);border-radius:7px;padding:5px 12px;cursor:pointer;font-family:'Montserrat',sans-serif;font-size:12px;font-weight:700">+ Добавить платёж</button>
+    <span id="pay-diff" style="font-size:11px;font-weight:600"></span>
+  </div>
+</div>`;
+}
+
+function readPayments(){
+  return _batchPayRows.filter(p=>(p.amount||0)>0).map(p=>({
+    id:p.id||gid(),source:p.source||'business',type:p.type||'нал',amount:+p.amount||0,date:p.date||today()
+  }));
+}
+
 // ═══ FUND SOURCE HELPER ═══
 const FUND_LABELS={'business':'💼 Оборотный капитал','founder':'🙋 Вложения основателя'};
 function fundSourceSelect(val){
@@ -1567,44 +1698,6 @@ function updateFsStyle(){
   if(hint)hint.innerHTML=isBusiness?'Оплачено из денег бизнеса — уменьшает кассу и учитывается в расходах':'<span style="color:#a855f7">Оплачено из личных денег основателя — не уменьшает кассу бизнеса, но учитывается в расходах P&L</span>';
 }
 function readFundSource(){return document.querySelector('input[name="fundSource"]:checked')?.value||'business';}
-
-
-// ─── WRITE-OFF FORM ───
-function writeoffFormHtml(writeoffs){
-  const cats=priceCats();
-  const existing={};
-  if(writeoffs)writeoffs.forEach(w=>{existing[w.key]=w;});
-  return`<div style="border:1px solid rgba(239,68,68,.3);border-radius:10px;overflow:hidden;margin-top:4px">
-  <div style="background:rgba(239,68,68,.08);padding:10px 16px;display:flex;justify-content:space-between;align-items:center">
-    <div>
-      <div style="font-size:12px;font-weight:700;color:var(--danger)">🗑 Списания / Брак</div>
-      <div style="font-size:10px;color:var(--muted);margin-top:1px">Вещи, которые не продались и списаны</div>
-    </div>
-  </div>
-  <div style="display:grid;grid-template-columns:100px 80px 1fr;gap:0;background:var(--surface2);border-top:1px solid rgba(239,68,68,.2);padding:6px 14px">
-    <div style="font-size:9px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.8px">Категория</div>
-    <div style="font-size:9px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.8px;text-align:center">Списано шт</div>
-    <div style="font-size:9px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.8px;padding-left:8px">Причина</div>
-  </div>
-  ${cats.map(t=>`<div style="display:grid;grid-template-columns:100px 80px 1fr;align-items:center;padding:6px 14px;border-top:1px solid rgba(255,255,255,.03)">
-    <div style="font-size:13px;font-weight:700;color:var(--muted)">${t.label}<br><span style="font-size:10px;font-weight:400">${t.price.toLocaleString('ru-RU')}₽</span></div>
-    <div><input type="number" class="wo-qty" data-key="${t.key}" data-label="${t.label}" placeholder="0" min="0" value="${existing[t.key]?existing[t.key].qty:''}" style="width:100%;padding:5px 8px;font-size:13px;text-align:center;background:var(--surface2);border:1px solid rgba(239,68,68,.3);border-radius:7px;color:var(--danger);font-family:'Montserrat',sans-serif;outline:none"></div>
-    <div style="padding-left:8px"><input type="text" class="wo-reason" data-key="${t.key}" placeholder="брак, не продалось..." value="${existing[t.key]?existing[t.key].reason||'':''}" style="width:100%;padding:5px 8px;font-size:12px;background:var(--surface2);border:1px solid var(--border);border-radius:7px;color:var(--muted);font-family:'Montserrat',sans-serif;outline:none"></div>
-  </div>`).join('')}
-</div>`;
-}
-
-function readWriteoffs(){
-  const items=[];
-  document.querySelectorAll('.wo-qty').forEach(el=>{
-    const qty=+el.value||0;
-    if(qty>0){
-      const reason=document.querySelector(`.wo-reason[data-key="${el.dataset.key}"]`)?.value||'';
-      items.push({key:el.dataset.key,label:el.dataset.label,qty,reason});
-    }
-  });
-  return items.length>0?items:null;
-}
 
 // ═══ COGS METHOD 2 CALCULATOR ═══
 // Метод 2: распределение себестоимости пропорционально продажной цене
@@ -1754,33 +1847,51 @@ function svEditExp(id){
 
 function oEditBatch(id){
   const x=batches().find(b=>b.id===id);if(!x)return;
+  // Init payment rows from existing data (new payments array or legacy fields)
+  const existingPays=x.payments&&x.payments.length>0?x.payments:getBatchPayments(x);
+  initBatchPayRows(existingPays,x.date);
   showM(`
 <div class="m-hdr"><h2>✏️ Редактировать партию</h2><button class="m-x" onclick="hideM()">×</button></div>
+<div style="max-height:80vh;overflow-y:auto;padding-right:4px">
 <div class="fg">
-  <div class="fgrp"><label>Дата</label><input type="date" id="fd" value="${x.date}"></div>
+  <div class="fgrp"><label>📅 Дата прихода</label><input type="date" id="fd" value="${x.date}"></div>
   <div class="fgrp"><label>№ Партии</label><input type="text" id="fnum" value="${x.batchNum||''}"></div>
-  <div class="fgrp full"><label>Тип палеты</label><input type="text" id="ftype" value="${x.paletType||''}"></div>
+  <div class="fgrp full"><label>Тип / Описание</label><input type="text" id="ftype" value="${x.paletType||''}"></div>
   <div class="fgrp"><label>Палет (шт)</label><input type="number" id="fpal" value="${x.paletCount||0}" min="0"></div>
-  <div class="fgrp"><label>Стоимость (₽)</label><input type="number" id="fcost" value="${x.cost||0}" min="0" oninput="updateCogsCalc()"></div>
-  <div class="fgrp"><label>Доставка (₽)</label><input type="number" id="fdel" value="${x.delivery||0}" min="0" oninput="updateCogsCalc()"></div>
-  <div class="fgrp"><label>Единиц товара (шт)</label><input type="number" id="funits" value="${x.units||0}" min="0"></div>
-  <div class="fgrp"><label>Оплата</label><select id="fpay"><option value="нал"${x.payType!=='безнал'?' selected':''}>Наличные</option><option value="безнал"${x.payType==='безнал'?' selected':''}>Безналичные</option></select></div>
-  ${fundSourceSelect(x.fundSource||'business')}
-  <div class="fgrp full"><label>Примечание</label><input type="text" id="fnote" value="${x.note||''}"></div>
-  <div class="fgrp full">${cogsFormHtml(x.cogsItems||null)}</div>
-  <div class="fgrp full">${writeoffFormHtml(x.writeoffs||null)}</div>
+  <div class="fgrp"><label>Всего единиц в партии</label><input type="number" id="funits" value="${x.units||0}" min="0" oninput="updateCogsCalc()"></div>
+  <div class="fgrp"><label>Оприходовано (факт)</label><input type="number" id="frecv" value="${x.receivedUnits!=null?x.receivedUnits:''}" placeholder="если не все" min="0"></div>
 </div>
-<div class="m-foot"><button class="btn btn-g" onclick="hideM()">Отмена</button><button class="btn btn-p" onclick="svEditBatch('${id}')">💾 Сохранить</button></div>`)
-  setTimeout(updateCogsCalc,50);
+<div style="border-top:1px solid var(--border);margin:12px 0;padding-top:12px">
+  <div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.8px;margin-bottom:10px">💰 Стоимость товара и доставки (для себестоимости)</div>
+  <div class="fg">
+    <div class="fgrp"><label>Стоимость товара (₽)</label><input type="number" id="fcost" value="${x.cost||0}" min="0" oninput="updateCogsCalc();updatePayDiff()"></div>
+    <div class="fgrp"><label>Стоимость доставки (₽)</label><input type="number" id="fdel" value="${x.delivery||0}" min="0" oninput="updateCogsCalc();updatePayDiff()"></div>
+  </div>
+</div>
+<div style="border-top:1px solid var(--border);margin:12px 0;padding-top:12px">
+  <div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.8px;margin-bottom:10px">📋 Примечание</div>
+  <input type="text" id="fnote" value="${x.note||''}" style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);padding:9px 12px;font-family:'Montserrat',sans-serif;font-size:13px;outline:none">
+</div>
+<div style="margin-bottom:14px">${paymentsBlockHtml(x.date)}</div>
+<div>${cogsFormHtml(x.cogsItems||null)}</div>
+</div>
+<div class="m-foot"><button class="btn btn-g" onclick="hideM()">Отмена</button><button class="btn btn-p" onclick="svEditBatch('${id}')">💾 Сохранить</button></div>`);
+  setTimeout(()=>{renderPaymentsBlock();updateCogsCalc();},50);
 }
 function svEditBatch(id){
   const d=document.getElementById('fd').value;if(!d){toast('Укажи дату','err');return}
-  const bb=batches().map(x=>x.id===id?{...x,date:d,batchNum:document.getElementById('fnum').value,
-    paletType:document.getElementById('ftype').value,paletCount:+document.getElementById('fpal').value||0,
-    cost:+document.getElementById('fcost').value||0,delivery:+document.getElementById('fdel').value||0,
-    units:+document.getElementById('funits').value||0,payType:document.getElementById('fpay').value,
-    note:document.getElementById('fnote').value,fundSource:readFundSource(),
-    cogsItems:readCogsItems(),writeoffs:readWriteoffs()}:x);
+  const pays=readPayments();
+  const bb=batches().map(x=>x.id===id?{...x,
+    date:d,batchNum:document.getElementById('fnum').value,
+    paletType:document.getElementById('ftype').value,
+    paletCount:+document.getElementById('fpal').value||0,
+    cost:+document.getElementById('fcost').value||0,
+    delivery:+document.getElementById('fdel').value||0,
+    units:+document.getElementById('funits').value||0,
+    receivedUnits:(document.getElementById('frecv').value!=='')?+document.getElementById('frecv').value:null,
+    note:document.getElementById('fnote').value,
+    payments:pays,
+    cogsItems:readCogsItems()}:x);
   save(K.batches,bb);hideM();render();
 }
 
@@ -2236,32 +2347,54 @@ function delExp(id){if(!confirm('Удалить запись?'))return;save(K.ex
 
 function oAddBatch(){
   const n=batches().length+1;
+  const initDate=today();
+  initBatchPayRows(null,initDate);
   showM(`
 <div class="m-hdr"><h2>Добавить партию</h2><button class="m-x" onclick="hideM()">×</button></div>
+<div style="max-height:80vh;overflow-y:auto;padding-right:4px">
 <div class="fg">
-  <div class="fgrp"><label>Дата</label><input type="date" id="fd" value="${today()}"></div>
+  <div class="fgrp"><label>📅 Дата прихода</label><input type="date" id="fd" value="${initDate}" onchange="document.querySelectorAll('#pay-rows-wrap input[type=date]').forEach(el=>{if(!el.dataset.changed)el.value=this.value})"></div>
   <div class="fgrp"><label>№ Партии</label><input type="text" id="fnum" value="П-${String(n).padStart(3,'0')}"></div>
-  <div class="fgrp full"><label>Тип палеты</label><input type="text" id="ftype" placeholder="Смешанная, одежда, электроника..."></div>
+  <div class="fgrp full"><label>Тип / Описание</label><input type="text" id="ftype" placeholder="200 единиц паллета, смешанная одежда..."></div>
   <div class="fgrp"><label>Палет (шт)</label><input type="number" id="fpal" placeholder="0" min="0"></div>
-  <div class="fgrp"><label>Стоимость (₽)</label><input type="number" id="fcost" placeholder="0" min="0" oninput="updateCogsCalc()"></div>
-  <div class="fgrp"><label>Доставка (₽)</label><input type="number" id="fdel" placeholder="0" min="0" oninput="updateCogsCalc()"></div>
-  <div class="fgrp"><label>Единиц товара (шт)</label><input type="number" id="funits" placeholder="0" min="0"></div>
-  <div class="fgrp"><label>Оплата</label><select id="fpay"><option value="нал">Наличные</option><option value="безнал">Безналичные</option></select></div>
-  ${fundSourceSelect('business')}
-  <div class="fgrp full"><label>Примечание</label><input type="text" id="fnote" placeholder="необязательно"></div>
-  <div class="fgrp full">${cogsFormHtml(null)}</div>
-  <div class="fgrp full">${writeoffFormHtml(null)}</div>
+  <div class="fgrp"><label>Всего единиц в партии</label><input type="number" id="funits" placeholder="0" min="0" oninput="updateCogsCalc()"></div>
+  <div class="fgrp"><label>Оприходовано (факт)</label><input type="number" id="frecv" placeholder="если не все" min="0"></div>
 </div>
-<div class="m-foot"><button class="btn btn-g" onclick="hideM()">Отмена</button><button class="btn btn-p" onclick="svBatch()">Сохранить</button></div>`)}
+<div style="border-top:1px solid var(--border);margin:12px 0;padding-top:12px">
+  <div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.8px;margin-bottom:10px">💰 Стоимость товара и доставки (для себестоимости)</div>
+  <div class="fg">
+    <div class="fgrp"><label>Стоимость товара (₽)</label><input type="number" id="fcost" placeholder="0" min="0" oninput="updateCogsCalc();updatePayDiff()"></div>
+    <div class="fgrp"><label>Стоимость доставки (₽)</label><input type="number" id="fdel" placeholder="0" min="0" oninput="updateCogsCalc();updatePayDiff()"></div>
+  </div>
+</div>
+<div style="border-top:1px solid var(--border);margin:12px 0;padding-top:12px">
+  <div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.8px;margin-bottom:10px">📋 Примечание</div>
+  <input type="text" id="fnote" placeholder="необязательно" style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);padding:9px 12px;font-family:'Montserrat',sans-serif;font-size:13px;outline:none">
+</div>
+<div style="margin-bottom:14px">${paymentsBlockHtml(initDate)}</div>
+<div>${cogsFormHtml(null)}</div>
+</div>
+<div class="m-foot"><button class="btn btn-g" onclick="hideM()">Отмена</button><button class="btn btn-p" onclick="svBatch()">💾 Сохранить</button></div>`);
+  setTimeout(()=>{renderPaymentsBlock();updateCogsCalc();},50);
+}
 
 function svBatch(){
   const d=document.getElementById('fd').value;if(!d){toast('Укажи дату','err');return}
+  const pays=readPayments();
   const bb=batches();
-  bb.push({id:gid(),date:d,batchNum:document.getElementById('fnum').value,paletType:document.getElementById('ftype').value,
-    paletCount:+document.getElementById('fpal').value||0,cost:+document.getElementById('fcost').value||0,
-    delivery:+document.getElementById('fdel').value||0,units:+document.getElementById('funits').value||0,
-    payType:document.getElementById('fpay').value,note:document.getElementById('fnote').value,
-    fundSource:readFundSource(),cogsItems:readCogsItems(),writeoffs:readWriteoffs()});
+  bb.push({
+    id:gid(),date:d,
+    batchNum:document.getElementById('fnum').value,
+    paletType:document.getElementById('ftype').value,
+    paletCount:+document.getElementById('fpal').value||0,
+    cost:+document.getElementById('fcost').value||0,
+    delivery:+document.getElementById('fdel').value||0,
+    units:+document.getElementById('funits').value||0,
+    receivedUnits:(document.getElementById('frecv').value!=='')?+document.getElementById('frecv').value:null,
+    note:document.getElementById('fnote').value,
+    payments:pays,
+    cogsItems:readCogsItems()
+  });
   save(K.batches,bb);hideM();render();
 }
 function delBatch(id){if(!confirm('Удалить запись?'))return;save(K.batches,batches().filter(x=>x.id!==id));render()}
@@ -2879,7 +3012,6 @@ function showMoreMenu(){
   const pages=[
     {p:'expenses',icon:'💸',label:'Расходы'},
     {p:'batches',icon:'📦',label:'Партии'},
-    {p:'cogs',icon:'🏷',label:'Себестоимость'},
     {p:'cashflow',icon:'💵',label:'Кэш-флоу'},
     {p:'dynamics',icon:'📅',label:'Динамика'},
     {p:'planfact',icon:'🎯',label:'План vs Факт'},
