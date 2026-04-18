@@ -417,7 +417,7 @@ function showM(html){
   document.getElementById('mbox').innerHTML=html;
   document.getElementById('ov').classList.add('on');
   // attach tier input listeners if present
-  if(document.querySelectorAll('.tier-qty').length>0)attachTierListeners();
+  if(document.querySelectorAll('.tier-qty').length>0||Object.keys(_varDeals).length>0)attachTierListeners();
 }
 function hideM(){document.getElementById('ov').classList.remove('on')}
 document.getElementById('ov').addEventListener('click',function(e){if(e.target===this)hideM()});
@@ -1450,17 +1450,22 @@ function rSet(){
   <div style="font-size:11px;font-weight:700;color:var(--muted);letter-spacing:1px;margin-bottom:10px;text-transform:uppercase">🏷️ Ценовые категории товара</div>
   <div class="card" style="padding:18px">
     <div style="font-size:12px;color:var(--muted);margin-bottom:14px">Настрой категории под свой прайс. Название + цена за единицу. Используются в разделе Продажи.</div>
-    <div style="display:grid;grid-template-columns:80px 1fr 120px 36px;gap:8px;align-items:center;padding:6px 0;border-bottom:1px solid var(--border);margin-bottom:8px">
+    <div style="display:grid;grid-template-columns:80px 1fr 110px 56px 36px;gap:8px;align-items:center;padding:6px 0;border-bottom:1px solid var(--border);margin-bottom:8px">
       <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase">Ключ</div>
       <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase">Название</div>
       <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase">Цена (₽)</div>
+      <div style="font-size:10px;font-weight:700;color:var(--warning);text-transform:uppercase;text-align:center" title="Произвольная цена — для Авито и аналогичных">Авито</div>
       <div></div>
     </div>
     <div id="pc-rows">
-      ${cats.map((c,i)=>`<div class="pc-row" style="display:grid;grid-template-columns:80px 1fr 120px 36px;gap:8px;align-items:center;margin-bottom:6px">
+      ${cats.map((c,i)=>`<div class="pc-row" style="display:grid;grid-template-columns:80px 1fr 110px 56px 36px;gap:8px;align-items:center;margin-bottom:6px">
         <input type="text" class="pc-key" value="${c.key}" placeholder="ключ" style="padding:6px 8px;font-size:12px;font-family:'JetBrains Mono',monospace">
         <input type="text" class="pc-label" value="${c.label}" placeholder="название" style="padding:6px 8px;font-size:13px;color:${TIER_COLORS[i%TIER_COLORS.length]}">
-        <input type="number" class="pc-price" value="${c.price}" min="0" placeholder="цена" style="padding:6px 8px;font-size:13px">
+        <input type="number" class="pc-price" value="${c.price}" min="0" placeholder="цена" style="padding:6px 8px;font-size:13px" ${c.variablePrice?'disabled style="padding:6px 8px;font-size:13px;opacity:.4"':''}>
+        <div style="display:flex;flex-direction:column;align-items:center;gap:2px">
+          <input type="checkbox" class="pc-variable" ${c.variablePrice?'checked':''} style="width:18px;height:18px;accent-color:var(--warning);cursor:pointer" title="Произвольная цена — вводится при каждой продаже вручную">
+          <span style="font-size:9px;color:var(--warning)">своя</span>
+        </div>
         <button onclick="this.closest('.pc-row').remove()" style="background:rgba(239,68,68,.15);border:none;color:var(--danger);border-radius:6px;padding:6px 8px;cursor:pointer;font-size:13px">✕</button>
       </div>`).join('')}
     </div>
@@ -1518,48 +1523,164 @@ function rSet(){
 }
 
 // ═══ PRICE TIER FORM HELPER ═══
+// ─── VARIABLE-PRICE DEALS (Авито и др.) ───
+let _varDeals={}; // {catKey: [{qty,price}, ...]}
+
+function initVarDeals(pc){
+  // Called when opening sale form — init from existing priceCats data
+  const cats=priceCats();
+  _varDeals={};
+  cats.forEach(t=>{
+    if(!t.variablePrice)return;
+    if(pc&&pc[t.key]&&pc[t.key].deals){
+      _varDeals[t.key]=pc[t.key].deals.map(d=>({...d}));
+    } else {
+      _varDeals[t.key]=[{qty:1,price:''}];
+    }
+  });
+}
+
+function addVarDeal(key){
+  if(!_varDeals[key])_varDeals[key]=[];
+  _varDeals[key].push({qty:1,price:''});
+  renderVarBlock(key);
+  updateTierTotal();
+}
+
+function removeVarDeal(key,idx){
+  _varDeals[key].splice(idx,1);
+  if(_varDeals[key].length===0)_varDeals[key]=[{qty:1,price:''}];
+  renderVarBlock(key);
+  updateTierTotal();
+}
+
+function updateVarDeal(key,idx,field,val){
+  if(!_varDeals[key])return;
+  _varDeals[key][idx][field]=field==='qty'?+val||1:+val||0;
+  // update inline result
+  const d=_varDeals[key][idx];
+  const resEl=document.getElementById(`vd-res-${key}-${idx}`);
+  if(resEl)resEl.textContent=d.qty&&d.price?Math.round(d.qty*d.price).toLocaleString('ru-RU')+' ₽':'—';
+  updateTierTotal();
+}
+
+function renderVarBlock(key){
+  const el=document.getElementById(`var-deals-${key}`);
+  if(!el)return;
+  const deals=_varDeals[key]||[];
+  el.innerHTML=deals.map((d,i)=>`
+    <div style="display:grid;grid-template-columns:70px 1fr 90px 28px;gap:6px;align-items:center;margin-bottom:5px">
+      <input type="number" value="${d.qty||1}" min="1" placeholder="шт"
+        oninput="updateVarDeal('${key}',${i},'qty',this.value)"
+        style="padding:6px 8px;font-size:12px;text-align:center;width:100%;background:var(--surface);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:'Montserrat',sans-serif;outline:none">
+      <input type="number" value="${d.price||''}" min="0" placeholder="цена ₽"
+        oninput="updateVarDeal('${key}',${i},'price',this.value)"
+        style="padding:6px 8px;font-size:12px;width:100%;background:var(--surface);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:'Montserrat',sans-serif;outline:none">
+      <span id="vd-res-${key}-${i}" style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--muted);text-align:right">
+        ${d.qty&&d.price?Math.round(d.qty*d.price).toLocaleString('ru-RU')+' ₽':'—'}
+      </span>
+      <button onclick="removeVarDeal('${key}',${i})" style="background:rgba(239,68,68,.15);border:none;color:var(--danger);border-radius:6px;width:28px;height:28px;cursor:pointer;font-size:16px;line-height:1;display:flex;align-items:center;justify-content:center">×</button>
+    </div>`).join('');
+  // update subtotal
+  const tot=deals.reduce((a,d)=>a+(+d.qty||0)*( +d.price||0),0);
+  const qty=deals.reduce((a,d)=>a+(+d.qty||0),0);
+  const subEl=document.getElementById(`var-sub-${key}`);
+  if(subEl)subEl.textContent=`${qty} шт · ${Math.round(tot).toLocaleString('ru-RU')} ₽`;
+}
+
 function tierFormHtml(pc){
   const cats=priceCats();
-  return`<div style="border:1px solid var(--border);border-radius:8px;overflow:hidden;margin-top:4px">
-    <div style="background:var(--surface2);padding:9px 14px;display:grid;grid-template-columns:1fr 90px 110px;gap:8px">
+  initVarDeals(pc);
+  const fixedCats=cats.filter(t=>!t.variablePrice);
+  const varCats=cats.filter(t=>t.variablePrice);
+  let html=`<div style="border:1px solid var(--border);border-radius:8px;overflow:hidden;margin-top:4px">`;
+
+  // ── Фиксированные категории ──
+  if(fixedCats.length>0){
+    html+=`<div style="background:var(--surface2);padding:9px 14px;display:grid;grid-template-columns:1fr 90px 110px;gap:8px">
       <div style="font-size:10px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:.8px">Ценовая категория</div>
       <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.8px;text-align:right">Цена</div>
       <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.8px;text-align:center">Кол-во (шт)</div>
-    </div>
-    ${cats.map((t,i)=>{
+    </div>`;
+    fixedCats.forEach((t,i)=>{
+      const catIdx=cats.indexOf(t);
       const qty=pc&&pc[t.key]?pc[t.key].qty:0;
-      return`<div style="display:grid;grid-template-columns:1fr 90px 110px;gap:8px;align-items:center;padding:7px 14px;border-top:1px solid rgba(255,255,255,.04)">
-        <div style="font-size:13px;font-weight:700;color:${TIER_COLORS[i%TIER_COLORS.length]}">${t.label}</div>
+      html+=`<div style="display:grid;grid-template-columns:1fr 90px 110px;gap:8px;align-items:center;padding:7px 14px;border-top:1px solid rgba(255,255,255,.04)">
+        <div style="font-size:13px;font-weight:700;color:${TIER_COLORS[catIdx%TIER_COLORS.length]}">${t.label}</div>
         <div style="font-size:13px;font-family:'JetBrains Mono',monospace;color:var(--muted);text-align:right">${t.price.toLocaleString('ru-RU')} ₽</div>
-        <div><input type="number" class="tier-qty" data-key="${t.key}" data-price="${t.price}" placeholder="0" min="0" value="${qty||''}" style="padding:6px 10px;font-size:13px;text-align:center;width:100%"></div>
+        <div><input type="number" class="tier-qty" data-key="${t.key}" data-price="${t.price}" placeholder="0" min="0" value="${qty||''}" style="padding:6px 10px;font-size:13px;text-align:center;width:100%" oninput="updateTierTotal()"></div>
       </div>`;
-    }).join('')}
-    <div id="tier-total-row" style="display:flex;justify-content:space-between;align-items:center;padding:9px 14px;border-top:1px solid var(--border);background:var(--surface2)">
-      <span style="font-size:12px;font-weight:700;color:var(--muted)">ИТОГО ШТ / СУММА</span>
-      <span id="tier-total" style="font-family:'JetBrains Mono',monospace;font-size:13px;font-weight:700;color:var(--accent)">0 шт · 0 ₽</span>
-    </div>
-  </div>`;
-}
-function attachTierListeners(){
-  document.querySelectorAll('.tier-qty').forEach(el=>{
-    el.addEventListener('input',updateTierTotal);
+    });
+  }
+
+  // ── Авито / переменная цена ──
+  varCats.forEach((t,i)=>{
+    const catIdx=cats.indexOf(t);
+    html+=`<div style="border-top:1px solid var(--border);padding:10px 14px;background:rgba(234,179,8,.04)">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <div style="font-size:13px;font-weight:700;color:${TIER_COLORS[catIdx%TIER_COLORS.length]}">${t.label} <span style="font-size:10px;color:var(--warning);font-weight:600;margin-left:4px">СВОЯ ЦЕНА</span></div>
+        <span id="var-sub-${t.key}" style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--warning)">0 шт · 0 ₽</span>
+      </div>
+      <div style="display:grid;grid-template-columns:70px 1fr 90px 28px;gap:6px;margin-bottom:4px;padding:0 0 4px;border-bottom:1px solid rgba(255,255,255,.06)">
+        <div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px">Штук</div>
+        <div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px">Цена за шт (₽)</div>
+        <div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;text-align:right">Итого</div>
+        <div></div>
+      </div>
+      <div id="var-deals-${t.key}"></div>
+      <button onclick="addVarDeal('${t.key}')" style="width:100%;margin-top:4px;background:none;border:1px dashed var(--border);color:var(--muted);border-radius:6px;padding:5px;font-size:12px;cursor:pointer;font-family:'Montserrat',sans-serif">+ добавить сделку</button>
+    </div>`;
   });
+
+  html+=`<div id="tier-total-row" style="display:flex;justify-content:space-between;align-items:center;padding:9px 14px;border-top:1px solid var(--border);background:var(--surface2)">
+    <span style="font-size:12px;font-weight:700;color:var(--muted)">ИТОГО ШТ / СУММА</span>
+    <span id="tier-total" style="font-family:'JetBrains Mono',monospace;font-size:13px;font-weight:700;color:var(--accent)">0 шт · 0 ₽</span>
+  </div></div>`;
+  return html;
+}
+
+function attachTierListeners(){
+  // fixed cats — listeners already attached via oninput="updateTierTotal()"
+  // var cats — render their deal blocks
+  const cats=priceCats();
+  cats.filter(t=>t.variablePrice).forEach(t=>renderVarBlock(t.key));
   updateTierTotal();
 }
+
 function updateTierTotal(){
   let qty=0,rev=0;
   document.querySelectorAll('.tier-qty').forEach(el=>{
     const q=+el.value||0,p=+el.dataset.price||0;
     qty+=q;rev+=q*p;
   });
+  // add variable price deals
+  Object.entries(_varDeals).forEach(([key,deals])=>{
+    deals.forEach(d=>{qty+=+d.qty||0;rev+=(+d.qty||0)*(+d.price||0);});
+    // update subtotal badge
+    const tot=deals.reduce((a,d)=>a+(+d.qty||0)*(+d.price||0),0);
+    const dqty=deals.reduce((a,d)=>a+(+d.qty||0),0);
+    const subEl=document.getElementById(`var-sub-${key}`);
+    if(subEl)subEl.textContent=`${dqty} шт · ${Math.round(tot).toLocaleString('ru-RU')} ₽`;
+  });
   const el=document.getElementById('tier-total');
   if(el)el.textContent=`${qty} шт · ${Math.round(rev).toLocaleString('ru-RU')} ₽`;
 }
+
 function readTiers(){
   const pc={};
   document.querySelectorAll('.tier-qty').forEach(el=>{
     const k=el.dataset.key,qty=+el.value||0,price=+el.dataset.price||0;
     if(qty>0)pc[k]={qty,rev:qty*price,price};
+  });
+  // variable price categories
+  Object.entries(_varDeals).forEach(([key,deals])=>{
+    const validDeals=deals.filter(d=>d.qty>0&&d.price>0);
+    if(validDeals.length===0)return;
+    const qty=validDeals.reduce((a,d)=>a+(+d.qty||0),0);
+    const rev=validDeals.reduce((a,d)=>a+(+d.qty||0)*(+d.price||0),0);
+    const cats=priceCats();
+    const cat=cats.find(c=>c.key===key);
+    pc[key]={qty,rev,price:qty>0?Math.round(rev/qty):0,deals:validDeals,variablePrice:true};
   });
   return Object.keys(pc).length>0?pc:null;
 }
@@ -2424,8 +2545,9 @@ function savePriceCats(){
   rows.forEach((row,i)=>{
     const key=(row.querySelector('.pc-key').value||'').trim().replace(/\s+/g,'_').toLowerCase();
     const label=(row.querySelector('.pc-label').value||'').trim();
+    const variablePrice=row.querySelector('.pc-variable')?.checked||false;
     const price=+row.querySelector('.pc-price').value||0;
-    if(key&&label&&price>0)cats.push({key,label,price});
+    if(key&&label&&(price>0||variablePrice))cats.push({key,label,price,variablePrice:variablePrice||undefined});
   });
   if(cats.length===0){toast('Добавь хотя бы одну категорию','err');return}
   const cur=cfg();
@@ -2439,10 +2561,14 @@ function addPcRow(){
   const color=TIER_COLORS[i%TIER_COLORS.length];
   const div=document.createElement('div');
   div.className='pc-row';
-  div.style.cssText='display:grid;grid-template-columns:80px 1fr 120px 36px;gap:8px;align-items:center;margin-bottom:6px';
+  div.style.cssText='display:grid;grid-template-columns:80px 1fr 110px 56px 36px;gap:8px;align-items:center;margin-bottom:6px';
   div.innerHTML=`<input type="text" class="pc-key" placeholder="ключ" style="padding:6px 8px;font-size:12px;font-family:'JetBrains Mono',monospace;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);width:100%;outline:none">
     <input type="text" class="pc-label" placeholder="название" style="padding:6px 8px;font-size:13px;color:${color};background:var(--surface2);border:1px solid var(--border);border-radius:8px;width:100%;outline:none;font-family:'Montserrat',sans-serif">
     <input type="number" class="pc-price" placeholder="цена" min="0" style="padding:6px 8px;font-size:13px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);width:100%;outline:none;font-family:'Montserrat',sans-serif">
+    <div style="display:flex;flex-direction:column;align-items:center;gap:2px">
+      <input type="checkbox" class="pc-variable" style="width:18px;height:18px;accent-color:var(--warning);cursor:pointer" title="Произвольная цена — вводится при каждой продаже вручную">
+      <span style="font-size:9px;color:var(--warning)">своя</span>
+    </div>
     <button onclick="this.closest('.pc-row').remove()" style="background:rgba(239,68,68,.15);border:none;color:var(--danger);border-radius:6px;padding:6px 8px;cursor:pointer;font-size:13px">✕</button>`;
   container.appendChild(div);
 }
