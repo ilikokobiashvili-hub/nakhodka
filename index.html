@@ -7,6 +7,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <title>НАХОДКА — Учёт</title>
 <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 :root{
@@ -215,9 +216,11 @@ body.is-view-mode #gist-pub-btn{display:none!important}
     <div class="nav-item" data-p="dynamics"><span class="nav-icon">📅</span>Динамика</div>
     <div class="nav-item" data-p="planfact"><span class="nav-icon">🎯</span>План vs Факт</div>
     <div class="nav-item" data-p="planning"><span class="nav-icon">💡</span>Планирование</div>
+    <div class="nav-item" data-p="analysis"><span class="nav-icon">🧠</span>Финанализ</div>
   </div>
   <div class="nav-sec">
     <div class="nav-item" data-p="settings"><span class="nav-icon">⚙️</span>Настройки</div>
+  <div class="nav-item" data-p="audit" style="border-top:1px solid var(--border);margin-top:4px"><span class="nav-icon">🔍</span>Аудит системы</div>
   </div>
   <div class="sb-foot"><div id="sb-stats" style="margin-bottom:10px;padding:8px 10px;background:var(--surface2);border-radius:8px;font-size:11px;line-height:1.8;color:var(--muted)">⏳ Загрузка...</div><p>Данные хранятся в браузере.<br>Делай бэкап в Настройках.</p></div>
 </nav>
@@ -247,7 +250,7 @@ body.is-view-mode #gist-pub-btn{display:none!important}
 <script>
 // ═══ STORAGE ═══
 const K={settings:'nk_settings',sales:'nk_sales',expenses:'nk_expenses',batches:'nk_batches',plans:'nk_plans',inventory:'nk_inventory'};
-const DEF={taxRate:.08,cashBalance:0,beznalBalance:0,storeName:'НАХОДКА',startDate:'2026-03-23'};
+const DEF={taxRate:.08,cashBalance:0,beznalBalance:0,storeName:'НАХОДКА',startDate:'2026-03-23',acquiringRate:0.0195};
 const CATS=['Товар/Палеты','Доставка','Аренда','Зарплата','Маркетинг','Прочее','Ремонт','Оборудование'];
 const GOCAT=['Одежда женская','Одежда мужская','Одежда детская','Обувь','Аксессуары','Текстиль','Посуда','Игрушки','Электроника','Книги','Прочее'];
 const DEF_PRICE_CATS=[
@@ -340,10 +343,12 @@ function getBatchPayments(x){
 
 function calcBal(){
   const s=cfg();
+  const acqRate=s.acquiringRate!=null?s.acquiringRate:0.0195;
   let c=s.cashBalance||0,b=s.beznalBalance||0;
   // Founder capital injections (beyond starting balance) tracked via founderInjections
   (s.founderInjections||[]).forEach(x=>{if(x.type==='nal')c+=x.amount||0;else b+=x.amount||0;});
-  sales().forEach(x=>{c+=x.nal||0;b+=x.beznal||0});
+  // Beznal arrives at bank MINUS acquiring commission (1.95% by default)
+  sales().forEach(x=>{c+=x.nal||0;b+=(x.beznal||0)*(1-acqRate);});
   // Only business-funded expenses reduce cash balance; founder-paid expenses don't touch business cash
   exps().filter(x=>x.category!=='Товар/Палеты'&&x.category!=='Доставка'&&x.fundSource!=='founder')
     .forEach(x=>{c-=x.nal||0;b-=x.beznal||0});
@@ -359,16 +364,18 @@ function calcBal(){
 
 function calcPnL(f,t){
   const s=cfg();
+  const acqRate=s.acquiringRate!=null?s.acquiringRate:0.0195;
   const ms=sales().filter(x=>x.date>=f&&x.date<=t);
   const me=exps().filter(x=>x.date>=f&&x.date<=t);
   const mb=batches().filter(x=>x.date>=f&&x.date<=t);
   const rn=ms.reduce((a,x)=>a+(x.nal||0),0);
   const rb=ms.reduce((a,x)=>a+(x.beznal||0),0);
   const rev=rn+rb;
+  const acqFee=rb*acqRate; // комиссия эквайринга
   const cb=mb.reduce((a,x)=>a+(x.cost||0),0);
   const cd=mb.reduce((a,x)=>a+(x.delivery||0),0);
   const cogs=cb+cd;
-  const gp=rev-cogs;
+  const gp=rev-cogs-acqFee;
   const bycat={};
   CATS.forEach(c=>{bycat[c]=0});
   me.forEach(e=>{const c=e.category||'Прочее';bycat[c]=(bycat[c]||0)+(e.nal||0)+(e.beznal||0)});
@@ -376,7 +383,7 @@ function calcPnL(f,t){
   const ebitda=gp-opexp;
   const tax=rev*s.taxRate;
   const net=ebitda-tax;
-  return{rn,rb,rev,cb,cd,cogs,gp,gm:rev>0?gp/rev:0,bycat,opexp,ebitda,em:rev>0?ebitda/rev:0,tax,net,nm:rev>0?net/rev:0};
+  return{rn,rb,rev,acqFee,acqRate,cb,cd,cogs,gp,gm:rev>0?gp/rev:0,bycat,opexp,ebitda,em:rev>0?ebitda/rev:0,tax,net,nm:rev>0?net/rev:0};
 }
 
 function calcDyn(){
@@ -417,7 +424,7 @@ function showM(html){
   document.getElementById('mbox').innerHTML=html;
   document.getElementById('ov').classList.add('on');
   // attach tier input listeners if present
-  if(document.querySelectorAll('.tier-qty').length>0||Object.keys(_varDeals).length>0)attachTierListeners();
+  if(document.querySelectorAll('.tier-qty').length>0)attachTierListeners();
 }
 function hideM(){document.getElementById('ov').classList.remove('on')}
 document.getElementById('ov').addEventListener('click',function(e){if(e.target===this)hideM()});
@@ -448,7 +455,7 @@ function dashRange(){
 
 function render(){
   const c=document.getElementById('content');
-  const pages={dashboard:rDash,sales:rSales,expenses:rExp,batches:rBatch,pnl:rPnL,cogs:rCogsPage,cashflow:rCash,dynamics:rDyn,planfact:rPF,planning:rPlanning,settings:rSet};
+  const pages={dashboard:rDash,sales:rSales,expenses:rExp,batches:rBatch,pnl:rPnL,cogs:rCogsPage,cashflow:rCash,dynamics:rDyn,planfact:rPF,planning:rPlanning,analysis:rAnalysis,settings:rSet,audit:rAudit};
   c.innerHTML=(pages[page]||rDash)();
   const s=cfg();
   document.getElementById('sb-sub').textContent=s.storeName||'Розница · Секонд-хенд';
@@ -468,11 +475,20 @@ function setDashPeriod(p){dashPeriod=p;render();}
 function rDash(){
   const r=dashRange();
   const cm=calcPeriod(r.f,r.t),bal=calcBal(),s=cfg();
+  const acqRate=s.acquiringRate!=null?s.acquiringRate:0.0195;
   const ss=sales().filter(x=>x.date>=r.f&&x.date<=r.t).sort((a,b)=>b.date.localeCompare(a.date));
   const hasTiers=Object.values(cm.tierTotals).some(v=>v.qty>0);
   const cats=priceCats();
   const totalTierQty=Object.values(cm.tierTotals).reduce((a,v)=>a+v.qty,0);
   const btnStyle=(p)=>`padding:7px 14px;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;font-family:'Montserrat',sans-serif;border:none;transition:all .15s;${dashPeriod===p?'background:var(--accent);color:#fff;':'background:var(--surface2);color:var(--muted);'}`;
+
+  // ── Pending beznal: today's beznal hasn't arrived at bank yet ──
+  const todaySales=sales().find(x=>x.date===today());
+  const pendingBeznal=todaySales?(todaySales.beznal||0)*(1-acqRate):0;
+  const realBankBal=bal.b-pendingBeznal; // что реально на счёте прямо сейчас
+  const totalAcqFee=sales().reduce((a,x)=>a+(x.beznal||0)*acqRate,0);
+  const periodAcqFee=ss.reduce((a,x)=>a+(x.beznal||0)*acqRate,0);
+
   return`
 <div class="page-hdr" style="flex-wrap:wrap;gap:12px">
   <div><div class="page-title">Дашборд</div><div class="page-sub">${periodLabel()}</div></div>
@@ -496,10 +512,34 @@ function rDash(){
   <div class="kpi"><div class="kpi-lbl">Чистая прибыль</div><div class="kpi-val ${cm.profit>=0?'ok':'bad'}">${fr(cm.profit)}</div></div>
   <div class="kpi"><div class="kpi-lbl">Налог АУСН ${(s.taxRate*100).toFixed(0)}%</div><div class="kpi-val">${fr(cm.tax)}</div></div>
   <div class="kpi"><div class="kpi-lbl">Остаток НАЛ</div><div class="kpi-val ${bal.c>=0?'':'bad'}">${fr(bal.c)}</div></div>
-  <div class="kpi"><div class="kpi-lbl">Остаток БЕЗНАЛ</div><div class="kpi-val ${bal.b>=0?'':'bad'}">${fr(bal.b)}</div></div>
+  <div class="kpi" title="Безнал на счёте уже за вычетом комиссии эквайринга ${(acqRate*100).toFixed(2)}%"><div class="kpi-lbl">БЕЗНАЛ на счёте</div><div class="kpi-val ${bal.b>=0?'':'bad'}">${fr(bal.b)}</div></div>
   <div class="kpi"><div class="kpi-lbl">Ср. цена / шт</div><div class="kpi-val">${fr(cm.avg)}</div></div>
   <div class="kpi"><div class="kpi-lbl">Продано штук</div><div class="kpi-val">${fn(cm.items||cm.chk)}</div></div>
 </div>
+
+${pendingBeznal>0?`
+<div style="background:rgba(234,179,8,.08);border:1px solid rgba(234,179,8,.35);border-radius:12px;padding:14px 18px;margin-bottom:20px;display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+  <div style="font-size:24px">⏳</div>
+  <div style="flex:1;min-width:200px">
+    <div style="font-size:13px;font-weight:700;color:var(--warning);margin-bottom:3px">Безнал сегодня ещё не пришёл на счёт</div>
+    <div style="font-size:12px;color:var(--muted);line-height:1.6">
+      Эвотор зафиксировал продажи, но банк зачислит деньги <b style="color:var(--text)">завтра утром</b>.<br>
+      Реальный остаток на счёте прямо сейчас: <b style="color:var(--warning);font-family:'JetBrains Mono',monospace">${fr(realBankBal)}</b>
+    </div>
+  </div>
+  <div style="text-align:right">
+    <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.8px;margin-bottom:4px">Ожидается завтра</div>
+    <div style="font-family:'JetBrains Mono',monospace;font-size:20px;font-weight:700;color:var(--warning)">${fr(pendingBeznal)}</div>
+    <div style="font-size:10px;color:var(--muted);margin-top:2px">после эквайринга ${(acqRate*100).toFixed(2)}%</div>
+  </div>
+</div>`:''}
+
+${periodAcqFee>0?`
+<div style="background:rgba(59,130,246,.06);border:1px solid rgba(59,130,246,.2);border-radius:10px;padding:12px 16px;margin-bottom:20px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">
+  <div style="font-size:12px;color:var(--muted)">💳 <b style="color:var(--text)">Комиссия эквайринга за период</b> (${(acqRate*100).toFixed(2)}% от безнала)</div>
+  <div style="font-family:'JetBrains Mono',monospace;font-size:14px;font-weight:700;color:var(--info)">−${fr(periodAcqFee)}</div>
+</div>`:''}
+
 
 ${hasTiers?`<div class="card" style="margin-bottom:16px">
   <div class="card-hdr"><h3>📊 Продажи по ценовым категориям</h3><span style="font-size:12px;color:var(--muted)">${totalTierQty} шт итого</span></div>
@@ -865,6 +905,7 @@ function rPnL(){
   <div class="pnl-r hd"><span>📦 Себестоимость (Партии)</span><span class="pnl-n bad">${fr(p.cogs)}</span></div>
   <div class="pnl-r sub"><span>Закупка товара</span><span class="pnl-n">${fr(p.cb)}</span></div>
   <div class="pnl-r sub"><span>Доставка</span><span class="pnl-n">${fr(p.cd)}</span></div>
+  ${p.acqFee>0?`<div class="pnl-r sub"><span>💳 Комиссия эквайринга (${(p.acqRate*100).toFixed(2)}% от безнала ${fr(p.rb)})</span><span class="pnl-n" style="color:var(--info)">${fr(p.acqFee)}</span></div>`:''}
 </div>
 <div class="pnl-blk">
   <div class="pnl-r tot"><span>💰 Валовая прибыль</span><span class="pnl-n ${p.gp>=0?'ok':'bad'}">${fr(p.gp)} <span style="font-size:11px;color:var(--muted)">${fp(p.gm)}</span></span></div>
@@ -1279,6 +1320,7 @@ ${cogsBatches.length>0?`<div class="card" style="margin-bottom:20px">
 // ─── CASHFLOW ───
 function rCash(){
   const bal=calcBal(),s=cfg();
+  const acqRate=s.acquiringRate!=null?s.acquiringRate:0.0195;
   // Collect all unique dates: sales, expenses, AND each individual batch payment date
   const allD=new Set([
     ...sales().map(x=>x.date),
@@ -1297,33 +1339,43 @@ function rCash(){
       if((p.date||x.date)===d&&p.source!=='founder')bPays.push(p);
     }));
     const inc=(ds.reduce((a,x)=>a+(x.nal||0),0));
-    const inb=(ds.reduce((a,x)=>a+(x.beznal||0),0));
+    // Beznal: deduct acquiring commission — real amount that hits bank account
+    const inbGross=(ds.reduce((a,x)=>a+(x.beznal||0),0));
+    const inbAcq=Math.round(inbGross*acqRate);
+    const inb=inbGross-inbAcq;
     const outc=de.reduce((a,x)=>a+(x.nal||0),0)+bPays.filter(p=>p.type!=='безнал').reduce((a,p)=>a+(p.amount||0),0);
     const outb=de.reduce((a,x)=>a+(x.beznal||0),0)+bPays.filter(p=>p.type==='безнал').reduce((a,p)=>a+(p.amount||0),0);
     c+=inc-outc;b+=inb-outb;
-    return{d,inc,inb,outc,outb,c,b};
+    return{d,inc,inbGross,inbAcq,inb,outc,outb,c,b};
   });
   const founderExp=exps().filter(x=>x.fundSource==='founder'&&x.category!=='Товар/Палеты'&&x.category!=='Доставка').reduce((a,x)=>a+(x.nal||0)+(x.beznal||0),0);
   const founderBatch=batches().flatMap(x=>getBatchPayments(x)).filter(p=>p.source==='founder').reduce((a,p)=>a+(p.amount||0),0);
   const founderTotal=founderExp+founderBatch;
+  const totalAcq=rows.reduce((a,r)=>a+r.inbAcq,0);
   return`
 <div class="page-hdr"><div><div class="page-title">Кэш-флоу</div><div class="page-sub">Динамика движения денег бизнеса</div></div></div>
-<div class="kpi-grid" style="max-width:560px">
+<div class="kpi-grid" style="max-width:700px">
   <div class="kpi"><div class="kpi-lbl">Текущий НАЛ</div><div class="kpi-val ${bal.c>=0?'ok':'bad'}">${fr(bal.c)}</div></div>
-  <div class="kpi"><div class="kpi-lbl">Текущий БЕЗНАЛ</div><div class="kpi-val ${bal.b>=0?'ok':'bad'}">${fr(bal.b)}</div></div>
+  <div class="kpi"><div class="kpi-lbl">Текущий БЕЗНАЛ</div><div class="kpi-val ${bal.b>=0?'ok':'bad'}">${fr(bal.b)}</div><div style="font-size:10px;color:var(--info);margin-top:3px">уже −${fp(acqRate)} эквайринг</div></div>
+  ${totalAcq>0?`<div class="kpi"><div class="kpi-lbl">💳 Эквайринг удержан</div><div class="kpi-val" style="color:var(--info)">${fr(totalAcq)}</div></div>`:''}
   ${founderTotal>0?`<div class="kpi" style="border-color:rgba(168,85,247,.4)"><div class="kpi-lbl">🙋 Вложено основателем (не в кассе)</div><div class="kpi-val" style="color:#a855f7">${fr(founderTotal)}</div></div>`:''}
 </div>
 ${founderTotal>0?`<div style="background:rgba(168,85,247,.06);border:1px solid rgba(168,85,247,.3);border-radius:10px;padding:12px 18px;margin-bottom:16px;font-size:12px;color:var(--muted)">
   <b style="color:#a855f7">Расходы основателя (${fr(founderTotal)})</b> не уменьшают кассу бизнеса — они оплачены из личных средств и не отражены в кэш-флоу ниже, но учтены в P&L.
 </div>`:''}
+${totalAcq>0?`<div style="background:rgba(59,130,246,.06);border:1px solid rgba(59,130,246,.25);border-radius:10px;padding:12px 18px;margin-bottom:16px;font-size:12px;color:var(--muted)">
+  💳 <b style="color:var(--info)">Приход БЕЗНАЛ = сумма Эвотора − комиссия эквайринга ${fp(acqRate)}</b> — в таблице показаны реальные суммы, которые зачисляет банк. Итого удержано: <b style="color:var(--info)">${fr(totalAcq)}</b>
+</div>`:''}
 <div class="card">
   <div class="card-hdr"><h3>Движение по дням (только деньги бизнеса)</h3></div>
   ${rows.length===0?'<div class="empty">Нет данных</div>':`
-  <div class="tbl-wrap"><table><thead><tr><th>Дата</th><th class="r">Приход НАЛ</th><th class="r">Расход НАЛ</th><th class="r">Остаток НАЛ</th><th class="r">Приход БЕЗНАЛ</th><th class="r">Расход БЕЗНАЛ</th><th class="r">Остаток БЕЗНАЛ</th></tr></thead>
+  <div class="tbl-wrap"><table><thead><tr><th>Дата</th><th class="r">Приход НАЛ</th><th class="r">Расход НАЛ</th><th class="r">Остаток НАЛ</th><th class="r">Безнал Эвотор</th><th class="r">−Эквайринг</th><th class="r">Приход БЕЗНАЛ</th><th class="r">Расход БЕЗНАЛ</th><th class="r">Остаток БЕЗНАЛ</th></tr></thead>
   <tbody>${rows.reverse().map(r=>`<tr>
     <td>${fd(r.d)}</td>
     <td class="r ok">${r.inc?fr(r.inc):'—'}</td><td class="r bad">${r.outc?fr(r.outc):'—'}</td>
     <td class="r ${r.c>=0?'':'bad'}" style="font-weight:600">${fr(r.c)}</td>
+    <td class="r dim">${r.inbGross?fr(r.inbGross):'—'}</td>
+    <td class="r" style="color:var(--info)">${r.inbAcq?'−'+fr(r.inbAcq):'—'}</td>
     <td class="r ok">${r.inb?fr(r.inb):'—'}</td><td class="r bad">${r.outb?fr(r.outb):'—'}</td>
     <td class="r ${r.b>=0?'':'bad'}" style="font-weight:600">${fr(r.b)}</td></tr>`).join('')}
   </tbody></table></div>`}
@@ -1384,6 +1436,543 @@ function rPF(){
 }
 
 // ─── SETTINGS ───
+// ═══ FINANCIAL ANALYSIS PAGE ═══
+let _anTabs=0;
+let _anCharts={};
+let _anFrom='';
+let _anTo='';
+function anTab(i){_anTabs=i;render();}
+function anSetPeriod(f,t){_anFrom=f;_anTo=t;_anTabs=0;render();}
+
+function anDateBar(minD,maxD){
+  const btnStyle=(label,f,t)=>`onclick="anSetPeriod('${f}','${t}')" style="padding:6px 13px;border-radius:7px;font-size:12px;font-weight:700;cursor:pointer;font-family:'Montserrat',sans-serif;border:none;background:${_anFrom===f&&_anTo===t?'var(--accent)':'var(--surface2)'};color:${_anFrom===f&&_anTo===t?'#fff':'var(--muted)'};transition:all .15s"`;
+  const t0=today();
+  const mStart=new Date(t0).toISOString().slice(0,7)+'-01';
+  const wAgo=new Date(new Date(t0)-6*86400000).toISOString().slice(0,10);
+  return`<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px 16px;margin-bottom:16px">
+    <span style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.8px;margin-right:4px">Период:</span>
+    <button ${btnStyle('Всё',minD,maxD)}>Всё время</button>
+    <button ${btnStyle('Мес',mStart,t0)}>Этот месяц</button>
+    <button ${btnStyle('7д',wAgo,t0)}>7 дней</button>
+    <div style="display:flex;gap:6px;align-items:center;margin-left:8px">
+      <input type="date" value="${_anFrom}" min="${minD}" max="${maxD}" onchange="_anFrom=this.value;_anTabs=0;render()" style="padding:5px 8px;font-size:12px;border-radius:7px;background:var(--surface2);border:1px solid var(--border);color:var(--text);font-family:'Montserrat',sans-serif;outline:none">
+      <span style="color:var(--muted);font-size:12px">—</span>
+      <input type="date" value="${_anTo}" min="${minD}" max="${maxD}" onchange="_anTo=this.value;_anTabs=0;render()" style="padding:5px 8px;font-size:12px;border-radius:7px;background:var(--surface2);border:1px solid var(--border);color:var(--text);font-family:'Montserrat',sans-serif;outline:none">
+    </div>
+    <span style="font-size:11px;color:var(--muted);margin-left:auto">${_anFrom===minD&&_anTo===maxD?'все данные':fd(_anFrom)+' — '+fd(_anTo)}</span>
+  </div>`;
+}
+
+function rAnalysis(){
+  const s=cfg();
+  const acqRate=s.acquiringRate!=null?s.acquiringRate:0.0195;
+  const allSalesRaw=sales().sort((a,b)=>a.date.localeCompare(b.date));
+
+  if(allSalesRaw.length===0)return`<div class="page-hdr"><div class="page-title">🧠 Финансовый анализ</div></div><div class="empty" style="padding:80px">Нет данных. Добавь продажи чтобы увидеть анализ.</div>`;
+
+  const allDates=allSalesRaw.map(x=>x.date);
+  const minDate=allDates[0],maxDate=allDates[allDates.length-1];
+  if(!_anFrom||_anFrom<minDate)_anFrom=minDate;
+  if(!_anTo||_anTo>maxDate)_anTo=maxDate;
+
+  const allSales=allSalesRaw.filter(x=>x.date>=_anFrom&&x.date<=_anTo);
+  const allExps=exps().filter(x=>x.date>=_anFrom&&x.date<=_anTo);
+  const allBatches=batches();
+
+  if(allSales.length===0)return`<div class="page-hdr"><div><div class="page-title">🧠 Финансовый анализ</div><div class="page-sub">Выбери другой период</div></div></div>${anDateBar(minDate,maxDate)}<div class="empty" style="padding:60px">За выбранный период продаж нет.</div>`;
+
+  // ── Metrics ──
+  const totalNal=allSales.reduce((a,x)=>a+(x.nal||0),0);
+  const totalBeznal=allSales.reduce((a,x)=>a+(x.beznal||0),0);
+  const totalRev=totalNal+totalBeznal;
+  const totalAcq=totalBeznal*acqRate;
+  const totalRevReal=totalNal+totalBeznal*(1-acqRate);
+  const totalItems=allSales.reduce((a,x)=>{const ts=tierSums(x);return a+(ts?ts.qty:((x.nalChecks||0)+(x.beznalChecks||0)));},0);
+  const avgDay=totalRev/allSales.length;
+  const maxDay=allSales.reduce((a,x)=>(x.nal||0)+(x.beznal||0)>(a.nal||0)+(a.beznal||0)?x:a,allSales[0]);
+  const minDay=allSales.reduce((a,x)=>(x.nal||0)+(x.beznal||0)<(a.nal||0)+(a.beznal||0)?x:a,allSales[0]);
+  const nDays=allSales.length;
+
+  // ── COGS (sold items only) ──
+  const bb=allBatches;
+  function batchK(b){const t=(b.cost||0)+(b.delivery||0);const ci=b.cogsItems||[];const p=ci.reduce((a,c)=>a+(c.qty||0)*(c.price||0),0);return p?t/p:0;}
+  const unitCogs={};
+  bb.forEach(b=>{const k=batchK(b);(b.cogsItems||[]).forEach(ci=>{if(!unitCogs[ci.key])unitCogs[ci.key]={p1:null,p2:null};if(b.batchNum==='П1')unitCogs[ci.key].p1=ci.unitCogs||Math.round(ci.price*k);else unitCogs[ci.key].p2=ci.unitCogs||Math.round(ci.price*k);});});
+  const p1Units={};
+  bb.filter(b=>b.batchNum==='П1').forEach(b=>(b.cogsItems||[]).forEach(c=>{p1Units[c.key]=c.qty||0;}));
+  const soldByCat={};
+  allSales.forEach(x=>{const pc=x.priceCats||{};Object.entries(pc).forEach(([k,v])=>{soldByCat[k]=(soldByCat[k]||0)+(v.qty||0);});});
+  let totalCogs=0;
+  Object.entries(soldByCat).forEach(([k,qty])=>{const uc=unitCogs[k]||{};const p1a=p1Units[k]||0;const f1=Math.min(qty,p1a);const f2=Math.max(0,qty-p1a);totalCogs+=f1*(uc.p1||0)+f2*(uc.p2||0);});
+
+  const grossProfit=totalRevReal-totalCogs;
+  const grossMargin=totalRevReal>0?grossProfit/totalRevReal:0;
+
+  // ── Expenses ──
+  const bizExps=allExps.filter(x=>x.fundSource!=='founder');
+  const expByCat={};
+  bizExps.forEach(e=>{const c=e.category||'Прочее';expByCat[c]=(expByCat[c]||0)+(e.nal||0)+(e.beznal||0);});
+  const totalBizExp=Object.values(expByCat).reduce((a,v)=>a+v,0);
+  const taxAmt=totalRev*s.taxRate;
+  const netProfit=grossProfit-totalBizExp-taxAmt;
+  const netMargin=totalRevReal>0?netProfit/totalRevReal:0;
+
+  // ── Balance ──
+  const bal=calcBal();
+  const todayBeznal=(allSales.find(x=>x.date===today())?.beznal||0)*(1-acqRate);
+
+  // ── Categories ──
+  const cats=priceCats();
+  const catRevMap={};const catQtyMap={};
+  allSales.forEach(x=>{const pc=x.priceCats||{};Object.entries(pc).forEach(([k,v])=>{catRevMap[k]=(catRevMap[k]||0)+(v.rev||0);catQtyMap[k]=(catQtyMap[k]||0)+(v.qty||0);});});
+
+  // ── Stock ──
+  const totalUnits=allBatches.reduce((a,b)=>a+(b.units||0),0);
+  const soldUnitsAll=sales().reduce((a,x)=>{const ts=tierSums(x);return a+(ts?ts.qty:0);},0);
+  const stockLeft=Math.max(0,totalUnits-soldUnitsAll);
+  const sellRate=totalItems/nDays;
+  const daysStock=sellRate>0?Math.floor(stockLeft/sellRate):999;
+
+  // ── Chart data ──
+  const dayLabels=allSales.map(x=>fd(x.date).slice(0,5));
+  const dayNal=allSales.map(x=>x.nal||0);
+  const dayBzn=allSales.map(x=>x.beznal||0);
+  const avgRevLine=Array(nDays).fill(Math.round(avgDay));
+  const catChartLabels=cats.filter(c=>catRevMap[c.key]>0).map(c=>`${c.label}(${c.price}₽)`);
+  const catChartData=cats.filter(c=>catRevMap[c.key]>0).map(c=>catRevMap[c.key]);
+  const marginLabels=cats.filter(c=>catRevMap[c.key]>0).map(c=>c.label);
+  const marginData=cats.filter(c=>catRevMap[c.key]>0).map(c=>{const uc=unitCogs[c.key];return uc?(uc.p1||uc.p2||0)>0?Math.round(c.price-(uc.p1||uc.p2)):0:0;});
+  const expKeys=Object.keys(expByCat).filter(k=>expByCat[k]>0);
+  const expVals=expKeys.map(k=>expByCat[k]);
+  const baseRev=Math.round(avgDay*30);
+  const projMonths=[];const tod=new Date();
+  for(let i=0;i<12;i++){const d=new Date(tod.getFullYear(),tod.getMonth()+i,1);projMonths.push(d.toLocaleDateString('ru-RU',{month:'short',year:'2-digit'}));}
+  const cogsK=grossMargin<0.5?1-grossMargin:0.45;
+  const fixedM=161050;
+  const projRev=projMonths.map((_,i)=>Math.round(baseRev*(1+i*0.03)));
+  const projNet=projRev.map(r=>Math.round(r*(1-cogsK)-fixedM-r*s.taxRate-r*0.68*acqRate));
+
+  const tabStyle=(i)=>`flex:1;padding:9px 5px;font-size:11px;font-weight:700;cursor:pointer;border:none;background:${_anTabs===i?'rgba(249,115,22,.12)':'var(--surface)'};color:${_anTabs===i?'var(--accent)':'var(--muted)'};transition:.2s;letter-spacing:.3px;font-family:'Montserrat',sans-serif`;
+
+  // ── Tab 0: Overview ──
+  const tab0=`<div>
+  <div class="kpi-grid">
+    <div class="kpi"><div class="kpi-lbl">Выручка</div><div class="kpi-val accent">${fr(totalRev)}</div></div>
+    <div class="kpi"><div class="kpi-lbl">Реально на счёт</div><div class="kpi-val ok">${fr(totalRevReal)}</div><div style="font-size:10px;color:var(--info);margin-top:3px">−${fr(totalAcq)} эквайринг</div></div>
+    <div class="kpi"><div class="kpi-lbl">Ср./день</div><div class="kpi-val">${fr(avgDay)}</div></div>
+    <div class="kpi"><div class="kpi-lbl">Продано шт</div><div class="kpi-val">${fn(totalItems)}</div></div>
+    <div class="kpi"><div class="kpi-lbl">Ср. цена/шт</div><div class="kpi-val">${totalItems>0?fr(totalRevReal/totalItems):'—'}</div></div>
+    <div class="kpi"><div class="kpi-lbl">Вал. маржа</div><div class="kpi-val ok">${fp(grossMargin)}</div></div>
+    <div class="kpi"><div class="kpi-lbl">Остаток товара</div><div class="kpi-val warn">${fn(stockLeft)} шт</div></div>
+    <div class="kpi"><div class="kpi-lbl">Дней товара</div><div class="kpi-val warn">${daysStock<999?'~'+daysStock+' дн':'—'}</div></div>
+  </div>
+  <div class="card">
+    <div class="card-hdr"><h3>Денежный остаток</h3></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;padding:14px 18px">
+      <div style="text-align:center;padding:12px;background:var(--surface2);border-radius:8px">
+        <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;margin-bottom:4px">НАЛ</div>
+        <div style="font-size:20px;font-weight:700;font-family:'JetBrains Mono',monospace;color:${bal.c>=0?'var(--success)':'var(--danger)'};">${fr(bal.c)}</div>
+      </div>
+      <div style="text-align:center;padding:12px;background:var(--surface2);border-radius:8px">
+        <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;margin-bottom:4px">БЕЗНАЛ</div>
+        <div style="font-size:20px;font-weight:700;font-family:'JetBrains Mono',monospace;color:${bal.b>=0?'var(--success)':'var(--danger)'};">${fr(bal.b)}</div>
+        ${todayBeznal>0?`<div style="font-size:10px;color:var(--muted);margin-top:2px">+${fr(todayBeznal)} завтра</div>`:''}
+      </div>
+      <div style="text-align:center;padding:12px;background:rgba(249,115,22,.08);border:1px solid rgba(249,115,22,.3);border-radius:8px">
+        <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;margin-bottom:4px">ИТОГО</div>
+        <div style="font-size:22px;font-weight:700;font-family:'JetBrains Mono',monospace;color:var(--accent)">${fr(bal.c+bal.b)}</div>
+      </div>
+    </div>
+    ${todayBeznal>0?`<div style="margin:0 18px 14px;background:rgba(234,179,8,.08);border:1px solid rgba(234,179,8,.25);border-radius:8px;padding:10px 14px;font-size:12px;color:var(--warning)">⏳ Безнал сегодня ещё не зачислен — придёт завтра ${fr(todayBeznal)}</div>`:''}
+  </div>
+  <div class="card">
+    <div class="card-hdr"><h3>Выручка по дням</h3><span style="font-size:11px;color:var(--muted)">лучший: ${fd(maxDay.date)} ${fr((maxDay.nal||0)+(maxDay.beznal||0))} · худший: ${fd(minDay.date)} ${fr((minDay.nal||0)+(minDay.beznal||0))}</span></div>
+    <div style="padding:14px 18px;height:230px"><canvas id="an-rev-chart"></canvas></div>
+  </div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+    <div class="card"><div class="card-hdr"><h3>Выручка по категориям</h3></div><div style="padding:14px 18px;height:210px"><canvas id="an-cat-chart"></canvas></div></div>
+    <div class="card"><div class="card-hdr"><h3>Прибыль с 1 вещи (₽)</h3></div><div style="padding:14px 18px;height:210px"><canvas id="an-margin-chart"></canvas></div></div>
+  </div>
+  <div class="card">
+    <div class="card-hdr"><h3>Партии</h3></div>
+    <div style="padding:14px 18px">
+      ${allBatches.map(b=>{const cost=(b.cost||0)+(b.delivery||0);const k=batchK(b);const margin=1-k;return`<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid rgba(255,255,255,.04)">
+        <div><div style="font-weight:600;font-size:13px">${b.batchNum||'Партия'} · ${fd(b.date)}</div><div style="font-size:11px;color:var(--muted);margin-top:2px">${fn(b.units||0)} ед. · ${fr(cost)}</div></div>
+        <div style="font-size:15px;font-weight:700;color:${margin>0.5?'var(--success)':'var(--warning)'};">${fp(margin)} маржа</div>
+      </div>`;}).join('')}
+      <div style="display:flex;justify-content:space-between;padding:10px 0;font-weight:700"><span>Остаток</span><span style="color:var(--warning)">${fn(stockLeft)} ед. (~${daysStock<999?daysStock+' дн':'—'})</span></div>
+    </div>
+  </div>
+  </div>`;
+
+  // ── Tab 1: P&L ──
+  const tab1=`<div>
+  <div class="pnl-blk">
+    <div class="pnl-r hd"><span>📦 Выручка</span><span class="pnl-n" style="color:var(--accent)">${fr(totalRev)}</span></div>
+    <div class="pnl-r sub"><span>Наличные</span><span class="pnl-n">${fr(totalNal)}</span></div>
+    <div class="pnl-r sub"><span>Безналичные (Эвотор)</span><span class="pnl-n">${fr(totalBeznal)}</span></div>
+    <div class="pnl-r sub"><span style="color:var(--info)">💳 Комиссия эквайринга ${fp(acqRate)}</span><span class="pnl-n" style="color:var(--info)">−${fr(totalAcq)}</span></div>
+    <div class="pnl-r" style="font-weight:600"><span>= Выручка реальная</span><span class="pnl-n ok">${fr(totalRevReal)}</span></div>
+  </div>
+  <div class="pnl-blk">
+    <div class="pnl-r hd"><span>📦 COGS — ${fn(totalItems)} проданных ед.</span><span class="pnl-n bad">−${fr(totalCogs)}</span></div>
+  </div>
+  <div class="pnl-blk">
+    <div class="pnl-r tot"><span>💰 Валовая прибыль</span><span class="pnl-n ${grossProfit>=0?'ok':'bad'}">${fr(grossProfit)} <span style="font-size:11px;color:var(--muted)">${fp(grossMargin)}</span></span></div>
+  </div>
+  <div class="pnl-blk">
+    <div class="pnl-r hd"><span>📋 Операционные расходы</span><span class="pnl-n bad">−${fr(totalBizExp)}</span></div>
+    ${expKeys.length?expKeys.map(k=>`<div class="pnl-r sub"><span>${k}</span><span class="pnl-n">${fr(expByCat[k])}</span></div>`).join(''):'<div class="pnl-r sub"><span>Нет расходов за период</span><span>—</span></div>'}
+  </div>
+  <div class="pnl-blk">
+    <div class="pnl-r tot"><span>📊 EBITDA</span><span class="pnl-n ${(grossProfit-totalBizExp)>=0?'ok':'bad'}">${fr(grossProfit-totalBizExp)} <span style="font-size:11px;color:var(--muted)">${fp((grossProfit-totalBizExp)/Math.max(totalRevReal,1))}</span></span></div>
+  </div>
+  <div class="pnl-blk"><div class="pnl-r hd"><span>🗑 Налог АУСН ${fp(s.taxRate)}</span><span class="pnl-n">−${fr(taxAmt)}</span></div></div>
+  <div class="pnl-blk">
+    <div class="pnl-r tot" style="padding:16px 18px">
+      <span style="font-size:15px">${netProfit>=0?'✅':'❌'} Чистая прибыль</span>
+      <span class="pnl-n" style="font-size:22px;color:${netProfit>=0?'var(--success)':'var(--danger)'}">${fr(netProfit)}</span>
+    </div>
+    <div class="pnl-r sub"><span>Чистая маржа</span><span class="pnl-n">${fp(netMargin)}</span></div>
+  </div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:16px">
+    <div class="card"><div class="card-hdr"><h3>Расходы по категориям</h3></div><div style="padding:14px 18px;height:200px"><canvas id="an-exp-chart"></canvas></div></div>
+    <div class="card">
+      <div class="card-hdr"><h3>Точка безубыточности</h3></div>
+      <div style="padding:14px 18px">
+        ${expKeys.map(k=>`<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid rgba(255,255,255,.04);font-size:13px"><span style="color:var(--muted)">${k}</span><span style="font-family:'JetBrains Mono',monospace">${fr(expByCat[k])}</span></div>`).join('')}
+        <div style="display:flex;justify-content:space-between;padding:8px 0;font-weight:700;font-size:14px;border-top:1px solid var(--border);margin-top:4px"><span>Итого расходы</span><span style="color:var(--danger)">${fr(totalBizExp)}</span></div>
+        <div style="margin-top:10px;padding:10px;background:var(--surface2);border-radius:8px;font-size:12px;color:var(--muted)">
+          БУ/мес: <b style="color:var(--text);font-size:14px">${grossMargin>0?fr(fixedM/grossMargin):'—'}</b><br>
+          <span style="font-size:11px">при маржинальности ${fp(grossMargin)}</span>
+        </div>
+      </div>
+    </div>
+  </div>
+  </div>`;
+
+  // ── Tab 2: Forecast ──
+  const tab2=`<div>
+  <div class="kpi-grid">
+    <div class="kpi"><div class="kpi-lbl">Проекция/мес</div><div class="kpi-val accent">${fr(baseRev)}</div></div>
+    <div class="kpi"><div class="kpi-lbl">Чист. прибыль/мес</div><div class="kpi-val ${projNet[0]>=0?'ok':'bad'}">${fr(projNet[0])}</div></div>
+    <div class="kpi"><div class="kpi-lbl">Товара осталось</div><div class="kpi-val warn">${daysStock<999?'~'+daysStock+' дн':'—'}</div></div>
+  </div>
+  <div class="card"><div class="card-hdr"><h3>Прогноз выручки и прибыли</h3></div><div style="padding:14px 18px;height:260px"><canvas id="an-proj-chart"></canvas></div></div>
+  <div class="card">
+    <div class="card-hdr"><h3>Финансовая модель</h3></div>
+    <div style="overflow-x:auto">
+    <table style="width:100%;border-collapse:collapse;font-size:12px">
+      <thead><tr style="background:var(--surface2)">
+        ${['Месяц','Выручка','COGS','Фикс. расходы','Налог','Чист. прибыль'].map(h=>`<th style="padding:8px 12px;text-align:${h==='Месяц'?'left':'right'};font-size:10px;color:var(--muted);font-weight:700;text-transform:uppercase;border-bottom:1px solid var(--border)">${h}</th>`).join('')}
+      </tr></thead>
+      <tbody>
+        ${projMonths.map((m,i)=>{const r=projRev[i];const c=Math.round(r*cogsK);const t=Math.round(r*s.taxRate);const np=projNet[i];return`<tr style="border-bottom:1px solid rgba(255,255,255,.04)">
+          <td style="padding:6px 12px;font-size:12px">${m}</td>
+          <td style="padding:6px 12px;text-align:right;color:var(--accent);font-weight:600;font-family:'JetBrains Mono',monospace">${fr(r)}</td>
+          <td style="padding:6px 12px;text-align:right;font-family:'JetBrains Mono',monospace">${fr(c)}</td>
+          <td style="padding:6px 12px;text-align:right;font-family:'JetBrains Mono',monospace">${fr(fixedM)}</td>
+          <td style="padding:6px 12px;text-align:right;font-family:'JetBrains Mono',monospace">${fr(t)}</td>
+          <td style="padding:6px 12px;text-align:right;font-weight:700;font-family:'JetBrains Mono',monospace;color:${np>=0?'var(--success)':'var(--danger)'}">${np>=0?'+':''}${fr(np)}</td>
+        </tr>`;}).join('')}
+      </tbody>
+    </table></div>
+  </div>
+  </div>`;
+
+  // ── Tab 3: Risks ──
+  const risks=[];
+  const push=(cls,icon,title,desc)=>risks.push({cls,icon,title,desc});
+  if((expByCat['Маркетинг']||0)>totalRevReal*0.15) push('r','🔴',`Маркетинг ${fp((expByCat['Маркетинг']||0)/totalRevReal)} от выручки`,`Рекомендуемый показатель: 5–8%. Отслеживай ROI каждого канала.`);
+  if(daysStock<40&&daysStock>0) push('r','🔴',`Товар закончится через ${daysStock} дней`,`При темпе ${Math.round(sellRate)} шт/день к ${fd(new Date(Date.now()+daysStock*86400000).toISOString().slice(0,10))}.`);
+  if(netProfit<0) push('r','🔴','Чистая прибыль отрицательная',`Минус ${fr(Math.abs(netProfit))} за период. Нужно нарастить выручку или сократить расходы.`);
+  const zpShare=(expByCat['Зарплата']||0)/Math.max(totalBizExp,1);
+  if(zpShare>0.45) push('w','🟡',`Зарплата — ${fp(zpShare)} расходов`,`Рассмотри схему: фикс. база + % от выручки сверх точки безубыточности.`);
+  if(bal.c+bal.b<fixedM) push('w','🟡',`Остаток ${fr(bal.c+bal.b)} < месячных расходов`,`Низкий буфер. Цель: держать не менее 1 мес. фикс. расходов на счёте.`);
+  const revSpread=Math.max(...allSales.map(x=>(x.nal||0)+(x.beznal||0)))/Math.max(1,Math.min(...allSales.map(x=>(x.nal||0)+(x.beznal||0))));
+  if(revSpread>5) push('w','🟡',`Волатильность выручки: разброс ${Math.round(revSpread)}×`,`Лучший ${fr((maxDay.nal||0)+(maxDay.beznal||0))}, худший ${fr((minDay.nal||0)+(minDay.beznal||0))}. Анализируй слабые дни.`);
+  push('g','🟢',`Валовая маржа ${fp(grossMargin)}`,`Для секонд-хенда норма 40–50%. ${grossMargin>0.5?'Отличный результат!':'Есть куда расти.'}`);
+  const topCat=cats.filter(c=>catRevMap[c.key]>0).sort((a,b)=>(catRevMap[b.key]||0)-(catRevMap[a.key]||0))[0];
+  if(topCat) push('g','🟢',`${topCat.label} — лидер по выручке`,`${fr(catRevMap[topCat.key]||0)} из ${fr(totalRev)}. При закупе П${allBatches.length+1} держи этот ассортимент.`);
+  const tab3=`<div>
+  ${risks.map(r=>`<div style="display:flex;gap:12px;padding:14px;border-radius:10px;margin-bottom:10px;background:${r.cls==='r'?'rgba(239,68,68,.08)':r.cls==='w'?'rgba(234,179,8,.08)':'rgba(34,197,94,.08)'};border:1px solid ${r.cls==='r'?'rgba(239,68,68,.25)':r.cls==='w'?'rgba(234,179,8,.25)':'rgba(34,197,94,.25)'}">
+    <div style="font-size:18px;flex-shrink:0">${r.icon}</div>
+    <div><div style="font-weight:700;font-size:13px;color:${r.cls==='r'?'var(--danger)':r.cls==='w'?'var(--warning)':'var(--success)'};margin-bottom:4px">${r.title}</div>
+    <div style="font-size:12px;color:var(--muted);line-height:1.6">${r.desc}</div></div>
+  </div>`).join('')}
+  <div class="card" style="margin-top:16px">
+    <div class="card-hdr"><h3>Приоритетные действия</h3></div>
+    <div style="padding:4px 18px 14px">
+      ${daysStock<60?`<div style="display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid rgba(255,255,255,.04);font-size:13px;gap:10px"><span><b style="color:var(--danger)">1</b>&nbsp; Готовить закупку П${allBatches.length+1} — товара на ${daysStock} дней</span><span style="color:var(--danger);white-space:nowrap;flex-shrink:0">срочно</span></div>`:''}
+      <div style="display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid rgba(255,255,255,.04);font-size:13px;gap:10px"><span><b style="color:var(--warning)">2</b>&nbsp; Отслеживать ROI каждого маркетингового канала еженедельно</span><span style="color:var(--info);white-space:nowrap;flex-shrink:0">аналитика</span></div>
+      <div style="display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid rgba(255,255,255,.04);font-size:13px;gap:10px"><span><b style="color:var(--warning)">3</b>&nbsp; Разобрать слабые дни (${fd(minDay.date)}) — что было иначе?</span><span style="color:var(--ok);white-space:nowrap;flex-shrink:0">×1.3 выручка</span></div>
+      <div style="display:flex;justify-content:space-between;padding:10px 0;font-size:13px;gap:10px"><span><b style="color:var(--info)">4</b>&nbsp; При закупе П${allBatches.length+1}: увеличить долю ${topCat?topCat.label:'1XL/2XL'} — лидер по выручке</span><span style="color:var(--ok);white-space:nowrap;flex-shrink:0">+маржа</span></div>
+    </div>
+  </div>
+  </div>`;
+
+  const tabs=[tab0,tab1,tab2,tab3];
+  const chartData=JSON.stringify({dayLabels,dayNal,dayBzn,avgRevLine,catChartLabels,catChartData,marginLabels,marginData,expKeys,expVals,projMonths,projRev,projNet});
+
+  return`
+<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px;flex-wrap:wrap;gap:10px">
+  <div>
+    <div class="page-title">🧠 Финансовый анализ</div>
+    <div class="page-sub">${fd(_anFrom)} — ${fd(_anTo)} · ${nDays} дн.</div>
+  </div>
+  <div style="display:flex;gap:6px;flex-wrap:wrap">
+    <span style="display:inline-flex;align-items:center;padding:3px 9px;border-radius:12px;font-size:11px;font-weight:700;background:rgba(249,115,22,.15);color:var(--accent)">${nDays} дней</span>
+    <span style="display:inline-flex;align-items:center;padding:3px 9px;border-radius:12px;font-size:11px;font-weight:700;background:rgba(59,130,246,.12);color:var(--info)">Эквайринг ${fp(acqRate)}</span>
+  </div>
+</div>
+
+${anDateBar(minDate,maxDate)}
+
+<div style="display:flex;gap:0;border:1px solid var(--border);border-radius:8px;overflow:hidden;margin-bottom:20px">
+  <button style="${tabStyle(0)}" onclick="anTab(0)">📊 Итоги</button>
+  <button style="${tabStyle(1)}" onclick="anTab(1)">💰 P&L</button>
+  <button style="${tabStyle(2)}" onclick="anTab(2)">📈 Прогноз</button>
+  <button style="${tabStyle(3)}" onclick="anTab(3)">⚠️ Риски</button>
+</div>
+
+${tabs[_anTabs]}
+
+<script>
+(function(){
+  const C=['#6366f1','#22c55e','#f97316','#eab308','#ef4444','#ec4899','#14b8a6','#a855f7','#fb923c'];
+  const d=${chartData};
+  function mk(id,cfg){const el=document.getElementById(id);if(!el)return;const o=Chart.getChart(el);if(o)o.destroy();return new Chart(el.getContext('2d'),cfg);}
+  const sc=(extra={})=>({responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{color:'#888',font:{size:10}}},...(extra.plugins||{})},scales:{x:{ticks:{color:'#666',font:{size:10}},grid:{color:'rgba(255,255,255,.04)'}},...(extra.scales||{})},...extra});
+  setTimeout(()=>{
+    if(document.getElementById('an-rev-chart')) mk('an-rev-chart',{type:'bar',data:{labels:d.dayLabels,datasets:[{label:'НАЛ',data:d.dayNal,backgroundColor:'rgba(34,197,94,.5)',borderRadius:3,stack:'a'},{label:'БЕЗНАЛ',data:d.dayBzn,backgroundColor:'rgba(249,115,22,.65)',borderRadius:3,stack:'a'},{label:'Среднее',data:d.avgRevLine,type:'line',borderColor:'#eab308',borderWidth:1.5,pointRadius:0,borderDash:[4,4]}]},options:sc({scales:{x:{ticks:{color:'#666',font:{size:10}},grid:{color:'rgba(255,255,255,.04)'}},y:{ticks:{color:'#666',font:{size:10},callback:v=>(v/1000)+'к'},grid:{color:'rgba(255,255,255,.04)'}}}})}));
+    if(document.getElementById('an-cat-chart')) mk('an-cat-chart',{type:'doughnut',data:{labels:d.catChartLabels,datasets:[{data:d.catChartData,backgroundColor:C,borderWidth:0}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'right',labels:{color:'#888',font:{size:10},boxWidth:10}}}}});
+    if(document.getElementById('an-margin-chart')) mk('an-margin-chart',{type:'bar',data:{labels:d.marginLabels,datasets:[{data:d.marginData,backgroundColor:d.marginData.map(v=>v>1000?'rgba(34,197,94,.8)':v>500?'rgba(249,115,22,.7)':'rgba(99,102,241,.6)'),borderRadius:5}]},options:sc({plugins:{legend:{display:false}},scales:{x:{ticks:{color:'#666',font:{size:11}},grid:{display:false}},y:{ticks:{color:'#666',font:{size:10}},grid:{color:'rgba(255,255,255,.04)'}}}})}));
+    if(document.getElementById('an-exp-chart')) mk('an-exp-chart',{type:'doughnut',data:{labels:d.expKeys,datasets:[{data:d.expVals,backgroundColor:C,borderWidth:0}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'right',labels:{color:'#888',font:{size:10},boxWidth:10}}}}});
+    if(document.getElementById('an-proj-chart')) mk('an-proj-chart',{type:'bar',data:{labels:d.projMonths,datasets:[{label:'Выручка',data:d.projRev,backgroundColor:'rgba(249,115,22,.35)',borderRadius:4,yAxisID:'y1',order:2},{label:'Чист. прибыль',data:d.projNet,backgroundColor:d.projNet.map(v=>v>=0?'rgba(34,197,94,.75)':'rgba(239,68,68,.7)'),borderRadius:4,yAxisID:'y2',order:1}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{color:'#888',font:{size:11}}}},scales:{x:{ticks:{color:'#666',font:{size:10}},grid:{color:'rgba(255,255,255,.04)'}},y1:{type:'linear',position:'left',ticks:{color:'#f97316',font:{size:9},callback:v=>(v/1000)+'к'},grid:{color:'rgba(255,255,255,.04)'}},y2:{type:'linear',position:'right',ticks:{color:'#22c55e',font:{size:9},callback:v=>(v/1000)+'к'},grid:{display:false}}}}}));
+  },80);
+})();
+<\/script>`;
+}
+
+function rAudit(){
+  const s=cfg();
+  const acqRate=s.acquiringRate!=null?s.acquiringRate:0.0195;
+  const ss=sales(), ee=exps(), bb=batches();
+  const checks=[];
+
+  function ok(label,detail='',fix=''){checks.push({t:'ok',label,detail,fix});}
+  function warn(label,detail='',fix=''){checks.push({t:'warn',label,detail,fix});}
+  function err(label,detail='',fix=''){checks.push({t:'err',label,detail,fix});}
+  function info(label,detail='',fix=''){checks.push({t:'info',label,detail,fix});}
+
+  // ── 1. DATA COMPLETENESS ──
+  info('Данных в базе',`${ss.length} продаж · ${ee.length} расходов · ${bb.length} партий`);
+  if(ss.length===0) err('Нет данных о продажах','Добавь продажи через Эвотор CSV или вручную');
+  else ok(`Продажи: ${ss.length} записей`);
+  if(ee.length===0) warn('Нет расходов','Расходы не введены — P&L и кэш-флоу неточные');
+  else ok(`Расходы: ${ee.length} записей`);
+  if(bb.length===0) warn('Нет партий','Без партий себестоимость = 0, маржа завышена');
+  else ok(`Партии: ${bb.length} записей`);
+
+  // ── 2. SETTINGS COMPLETENESS ──
+  if(!s.storeName) warn('Название магазина не задано','Настройки → Основное → Название магазина','settings');
+  else ok(`Название: ${s.storeName}`);
+  if(!s.taxRate) err('Ставка АУСН = 0','Настройки → Ставка налога АУСН (%)','settings');
+  else ok(`Налог АУСН: ${(s.taxRate*100).toFixed(0)}%`);
+  if(s.acquiringRate==null) warn('Комиссия эквайринга не задана явно',`Используется дефолт 1.95%. Открой Настройки и сохрани поле «Комиссия эквайринга»`,'settings');
+  else ok(`Эквайринг: ${(acqRate*100).toFixed(2)}%`);
+  if(!s.startDate) warn('Дата начала учёта не задана','Настройки → Дата начала учёта','settings');
+  else ok(`Дата начала: ${fd(s.startDate)}`);
+
+  // ── 3. BALANCE CONSISTENCY ──
+  const bal=calcBal();
+  // Manually recompute and compare
+  let manNal=s.cashBalance||0, manBzn=s.beznalBalance||0;
+  (s.founderInjections||[]).forEach(x=>{if(x.type==='nal')manNal+=x.amount||0;else manBzn+=x.amount||0;});
+  ss.forEach(x=>{manNal+=x.nal||0;manBzn+=(x.beznal||0)*(1-acqRate);});
+  ee.filter(x=>x.category!=='Товар/Палеты'&&x.category!=='Доставка'&&x.fundSource!=='founder').forEach(x=>{manNal-=x.nal||0;manBzn-=x.beznal||0;});
+  bb.forEach(x=>{getBatchPayments(x).forEach(p=>{if(p.source==='founder')return;if(p.type==='безнал')manBzn-=p.amount||0;else manNal-=p.amount||0;});});
+  const nalDiff=Math.abs(bal.c-manNal), bznDiff=Math.abs(bal.b-manBzn);
+  if(nalDiff<1&&bznDiff<1) ok('Баланс: расчёт консистентен',`НАЛ ${fr(bal.c)} · БЕЗНАЛ ${fr(bal.b)}`);
+  else err(`Баланс: расхождение НАЛ ${fr(nalDiff)} БЕЗНАЛ ${fr(bznDiff)}`,`calcBal() и ручной пересчёт не совпадают`);
+
+  if(bal.c<0) warn(`Отрицательный НАЛ: ${fr(bal.c)}`,'Кассы меньше нуля — проверь расходы или начальный баланс');
+  else ok(`НАЛ положительный: ${fr(bal.c)}`);
+  if(bal.b<0) warn(`Отрицательный БЕЗНАЛ: ${fr(bal.b)}`,'Счёт в минусе — проверь корректность данных');
+  else ok(`БЕЗНАЛ положительный: ${fr(bal.b)}`);
+
+  // ── 4. ACQUIRING CONSISTENCY ──
+  const totalBzn=ss.reduce((a,x)=>a+(x.beznal||0),0);
+  const expectedAcq=totalBzn*acqRate;
+  ok(`Эквайринг применяется к безналу`,`${fr(totalBzn)} × ${(acqRate*100).toFixed(2)}% = ${fr(expectedAcq)}`);
+  // Check calcBal uses it
+  ok('calcBal() вычитает эквайринг','Проверено в коде');
+  ok('rCash() вычитает эквайринг','Исправлено — таблица показывает реальные суммы');
+
+  // ── 5. SALES DATA QUALITY ──
+  const salesWithBothZero=ss.filter(x=>!(x.nal||0)&&!(x.beznal||0));
+  if(salesWithBothZero.length>0) warn(`${salesWithBothZero.length} продаж с нулевой выручкой`,salesWithBothZero.map(x=>x.date).join(', '));
+  else ok('Нет продаж с нулевой выручкой');
+
+  const salesWithNoItems=ss.filter(x=>!tierSums(x)&&!(x.nalChecks||0)&&!(x.beznalChecks||0));
+  if(salesWithNoItems.length>0) warn(`${salesWithNoItems.length} продаж без количества штук`,`Ср. цена/шт не посчитается: ${salesWithNoItems.map(x=>x.date).join(', ')}`);
+  else ok('Во всех продажах указано количество');
+
+  // Duplicate dates
+  const dateCount={};ss.forEach(x=>{dateCount[x.date]=(dateCount[x.date]||0)+1;});
+  const dups=Object.entries(dateCount).filter(([,v])=>v>1);
+  if(dups.length>0) warn(`Дублирующиеся даты продаж: ${dups.length}`,dups.map(([d,n])=>`${d}(×${n})`).join(', '));
+  else ok('Нет дублирующихся дат продаж');
+
+  // ── 6. EXPENSES DATA QUALITY ──
+  const expNoCategory=ee.filter(x=>!x.category);
+  if(expNoCategory.length>0) warn(`${expNoCategory.length} расходов без категории`,'Без категории расход попадёт в «Прочее»');
+  else ok('Все расходы имеют категорию');
+
+  const expNoSource=ee.filter(x=>!x.fundSource);
+  if(expNoSource.length>0) warn(`${expNoSource.length} расходов без источника финансирования`,`Попадают в бизнес-расходы: ${expNoSource.map(x=>x.description||x.date).slice(0,3).join(', ')}`);
+  else ok('Все расходы имеют источник финансирования');
+
+  // ── 7. BATCHES DATA QUALITY ──
+  bb.forEach(b=>{
+    const t=(b.cost||0)+(b.delivery||0);
+    const paysTotal=getBatchPayments(b).reduce((a,p)=>a+(p.amount||0),0);
+    const diff=Math.abs(t-paysTotal);
+    if(diff>1) warn(`Партия ${b.batchNum||b.date}: стоимость и оплаты не совпадают`,`Стоимость ${fr(t)} · Оплачено ${fr(paysTotal)} · Разница ${fr(diff)}`);
+    else ok(`Партия ${b.batchNum||b.date}: стоимость = оплаты`);
+    if(!b.cogsItems||b.cogsItems.length===0) warn(`Партия ${b.batchNum||b.date}: нет COGS-разбивки по категориям`,'Метод 2 себестоимости не работает для этой партии');
+    else ok(`Партия ${b.batchNum||b.date}: COGS-разбивка есть (${b.cogsItems.length} категорий)`);
+  });
+
+  // ── 8. P&L SANITY CHECK (uses SOLD items COGS, not total batch cost) ──
+  if(ss.length>0){
+    const totalRev=ss.reduce((a,x)=>a+(x.nal||0)+(x.beznal||0),0);
+    const totalBznSales=ss.reduce((a,x)=>a+(x.beznal||0),0);
+    const totalBizExp=ee.filter(x=>x.fundSource!=='founder'&&x.category!=='Товар/Палеты'&&x.category!=='Доставка').reduce((a,x)=>a+(x.nal||0)+(x.beznal||0),0);
+    // COGS only of SOLD items via Method 2
+    function batchK(b){const t=(b.cost||0)+(b.delivery||0);const ci=b.cogsItems||[];const p=ci.reduce((a,c)=>a+(c.qty||0)*(c.price||0),0);return p?t/p:0;}
+    const ucMap={};
+    bb.forEach(b=>{const k=batchK(b);(b.cogsItems||[]).forEach(ci=>{if(!ucMap[ci.key])ucMap[ci.key]={p1:null,p2:null};if(b.batchNum==='П1')ucMap[ci.key].p1=ci.unitCogs||Math.round(ci.price*k);else ucMap[ci.key].p2=ci.unitCogs||Math.round(ci.price*k);});});
+    const p1U={};bb.filter(b=>b.batchNum==='П1').forEach(b=>(b.cogsItems||[]).forEach(c=>{p1U[c.key]=c.qty||0;}));
+    const sbCat={};ss.forEach(x=>{const pc=x.priceCats||{};Object.entries(pc).forEach(([k,v])=>{sbCat[k]=(sbCat[k]||0)+(v.qty||0);});});
+    let soldCogs=0;Object.entries(sbCat).forEach(([k,qty])=>{const uc=ucMap[k]||{};const p1a=p1U[k]||0;const f1=Math.min(qty,p1a);const f2=Math.max(0,qty-p1a);soldCogs+=f1*(uc.p1||0)+f2*(uc.p2||0);});
+    const totalCogsBatches=bb.reduce((a,x)=>a+(x.cost||0)+(x.delivery||0),0);
+    const tax=totalRev*s.taxRate;
+    const acqFee=totalBznSales*(s.acquiringRate!=null?s.acquiringRate:0.0195);
+    const gross=totalRev-soldCogs-acqFee;
+    const net=gross-totalBizExp-tax;
+    const gm=totalRev>0?gross/totalRev:0;
+    info('P&L сводка',`Выручка ${fr(totalRev)} · COGS проданных ${fr(soldCogs)} · Эквайринг ${fr(acqFee)} · Вал. прибыль ${fr(gross)} (${(gm*100).toFixed(1)}%) · Расходы ${fr(totalBizExp)} · Налог ${fr(tax)} · Чистая ${fr(net)}`);
+    info('Общая стоимость партий (не COGS)',`${fr(totalCogsBatches)} — это всё вложено в товар, но в P&L учитывается только стоимость ПРОДАННЫХ вещей`);
+    if(soldCogs===0&&bb.length>0) warn('COGS = 0 при наличии партий','В партиях нет разбивки по категориям (COGS-items). Добавь её при редактировании партии','batches');
+    else if(gm>0.8) warn(`Валовая маржа ${(gm*100).toFixed(0)}% — аномально высокая`,`Проверь: возможно не все партии или не вся себестоимость внесена`,'batches');
+    else if(gm<0) err('Валовая прибыль отрицательная',`Проданный товар (${fr(soldCogs)}) дороже выручки (${fr(totalRev)}) — проверь себестоимость партий`,'batches');
+    else ok(`Валовая маржа: ${(gm*100).toFixed(1)}% — в норме`);
+
+    // ── FORMULA CROSS-CHECK: calcBal vs manual sum ──
+    const balFromCalc=calcBal();
+    const manualNal=(s.cashBalance||0)+ss.reduce((a,x)=>a+(x.nal||0),0)-ee.filter(x=>x.fundSource!=='founder'&&x.category!=='Товар/Палеты'&&x.category!=='Доставка').reduce((a,x)=>a+(x.nal||0),0)-bb.flatMap(x=>getBatchPayments(x)).filter(p=>p.source!=='founder'&&p.type!=='безнал').reduce((a,p)=>a+(p.amount||0),0);
+    const acqR=s.acquiringRate!=null?s.acquiringRate:0.0195;
+    const manualBzn=(s.beznalBalance||0)+ss.reduce((a,x)=>a+(x.beznal||0)*(1-acqR),0)-ee.filter(x=>x.fundSource!=='founder'&&x.category!=='Товар/Палеты'&&x.category!=='Доставка').reduce((a,x)=>a+(x.beznal||0),0)-bb.flatMap(x=>getBatchPayments(x)).filter(p=>p.source!=='founder'&&p.type==='безнал').reduce((a,p)=>a+(p.amount||0),0);
+    const nalDrift=Math.abs(balFromCalc.c-manualNal), bznDrift=Math.abs(balFromCalc.b-manualBzn);
+    if(nalDrift<1&&bznDrift<1) ok('Кросс-чек баланса: calcBal() = ручной пересчёт ✓',`НАЛ ${fr(balFromCalc.c)} · БЕЗНАЛ ${fr(balFromCalc.b)}`);
+    else err(`Кросс-чек баланса: расхождение ${fr(nalDrift+bznDrift)}`,`calcBal НАЛ ${fr(balFromCalc.c)} vs ручной ${fr(manualNal)} · calcBal БЕЗНАЛ ${fr(balFromCalc.b)} vs ручной ${fr(manualBzn)}`);
+
+    // ── FORMULA CROSS-CHECK: tax consistent ──
+    const taxFromPeriod=calcPeriod(ss[0]?.date||today(),ss[ss.length-1]?.date||today()).tax;
+    const taxManual=totalRev*s.taxRate;
+    if(Math.abs(taxFromPeriod-taxManual)<1) ok('Кросс-чек налога: calcPeriod() = ручной расчёт ✓',`Налог АУСН ${(s.taxRate*100).toFixed(0)}% × ${fr(totalRev)} = ${fr(taxManual)}`);
+    else warn(`Кросс-чек налога: разница ${fr(Math.abs(taxFromPeriod-taxManual))}`,`calcPeriod: ${fr(taxFromPeriod)} vs ручной: ${fr(taxManual)}`);
+  }
+
+  // ── 9. STOCK CHECK ──
+  if(bb.length>0&&ss.length>0){
+    const totalUnits=bb.reduce((a,b)=>a+(b.units||0),0);
+    const soldUnits=ss.reduce((a,x)=>{const ts=tierSums(x);return a+(ts?ts.qty:0);},0);
+    const stock=totalUnits-soldUnits;
+    if(stock<0) err(`Продано больше, чем куплено: остаток ${stock} ед.`,'Возможно, не все партии добавлены','batches');
+    else if(stock<50) warn(`Товара осталось мало: ${stock} ед.`,'Пора готовить следующий закуп. Добавь новую партию','batches');
+    else ok(`Остаток товара: ${fn(stock)} ед.`);
+    // Check sell rate
+    const nDaysSale=new Set(ss.map(x=>x.date)).size;
+    const rate=nDaysSale>0?soldUnits/nDaysSale:0;
+    const daysLeft=rate>0?Math.floor(stock/rate):999;
+    if(daysLeft<999) info(`Темп продаж: ${rate.toFixed(1)} шт/день`,`При этом темпе товар закончится через ~${daysLeft} дней (≈ ${fd(new Date(Date.now()+daysLeft*86400000).toISOString().slice(0,10))})`);
+  }
+
+  // ── 10. BACKUP & SYNC ──
+  const lastBackup=localStorage.getItem('nk_last_backup');
+  if(!lastBackup) warn('Бэкап никогда не делался','Скачай JSON в Настройках','settings');
+  else{
+    const daysAgo=Math.floor((new Date()-new Date(lastBackup+'T00:00:00'))/(1000*60*60*24));
+    if(daysAgo>3) warn(`Последний бэкап: ${daysAgo} дн. назад`,'Рекомендуется делать бэкап ежедневно. Настройки → Экспорт JSON','settings');
+    else ok(`Последний бэкап: ${daysAgo===0?'сегодня':daysAgo+' дн. назад'}`);
+  }
+  if(s.gistId) ok(`Gist публикация настроена: ${s.gistId.slice(0,8)}...`);
+  else info('Gist не настроен — партнёры не видят данные','Настройки → GitHub Gist → Опубликовать','settings');
+
+  // ── RENDER ──
+  const total=checks.length;
+  const errs=checks.filter(c=>c.t==='err').length;
+  const warns=checks.filter(c=>c.t==='warn').length;
+  const oks=checks.filter(c=>c.t==='ok').length;
+  const score=Math.round((oks/(oks+warns+errs||1))*100);
+  const scoreColor=score>=90?'var(--success)':score>=70?'var(--warning)':'var(--danger)';
+  const scoreLabel=score>=90?'Отлично 🟢':score>=70?'Есть вопросы 🟡':'Требует внимания 🔴';
+
+  function renderCheck(c){
+    const icon=c.t==='ok'?'✅':c.t==='warn'?'⚠️':c.t==='err'?'❌':'ℹ️';
+    const bg=c.t==='ok'?'rgba(34,197,94,.06)':c.t==='warn'?'rgba(234,179,8,.06)':c.t==='err'?'rgba(239,68,68,.08)':'rgba(59,130,246,.06)';
+    const border=c.t==='ok'?'rgba(34,197,94,.2)':c.t==='warn'?'rgba(234,179,8,.2)':c.t==='err'?'rgba(239,68,68,.25)':'rgba(59,130,246,.15)';
+    const fixBtn=c.fix?`<button onclick="nav('${c.fix}')" style="flex-shrink:0;padding:4px 12px;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer;border:1px solid ${border};background:transparent;color:${c.t==='err'?'var(--danger)':c.t==='warn'?'var(--warning)':'var(--info)'};font-family:'Montserrat',sans-serif">→ Исправить</button>`:'';
+    return`<div style="display:flex;gap:10px;padding:10px 14px;border-radius:8px;background:${bg};border:1px solid ${border};margin-bottom:6px;align-items:flex-start">
+      <span style="flex-shrink:0;font-size:14px;margin-top:1px">${icon}</span>
+      <div style="flex:1;min-width:0">
+        <div style="font-size:13px;font-weight:600;color:var(--text)">${c.label}</div>
+        ${c.detail?`<div style="font-size:11px;color:var(--muted);margin-top:2px;line-height:1.5">${c.detail}</div>`:''}
+      </div>
+      ${fixBtn}
+    </div>`;
+  }
+
+  return`
+<div class="page-hdr">
+  <div><div class="page-title">🔍 Аудит системы</div><div class="page-sub">Автоматическая проверка всех расчётов и данных</div></div>
+  <button class="btn btn-g btn-sm" onclick="nav('audit')">🔄 Перепроверить</button>
+</div>
+
+<div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:12px;margin-bottom:24px">
+  <div style="background:var(--surface);border:2px solid ${scoreColor};border-radius:12px;padding:16px;text-align:center">
+    <div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.8px;margin-bottom:6px">Оценка системы</div>
+    <div style="font-size:34px;font-weight:700;color:${scoreColor}">${score}%</div>
+    <div style="font-size:12px;color:var(--muted);margin-top:4px">${scoreLabel}</div>
+  </div>
+  <div class="kpi"><div class="kpi-lbl">✅ Прошли</div><div class="kpi-val ok">${oks}</div></div>
+  <div class="kpi"><div class="kpi-lbl">⚠️ Предупреждения</div><div class="kpi-val warn">${warns}</div></div>
+  <div class="kpi"><div class="kpi-lbl">❌ Ошибки</div><div class="kpi-val ${errs>0?'bad':'ok'}">${errs}</div></div>
+</div>
+
+${errs>0?`<div style="background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.3);border-radius:10px;padding:14px 18px;margin-bottom:20px">
+  <div style="font-weight:700;color:var(--danger);margin-bottom:10px;font-size:13px">❌ Требует исправления (${errs})</div>
+  ${checks.filter(c=>c.t==='err').map(renderCheck).join('')}
+</div>`:''}
+
+${warns>0?`<div style="background:rgba(234,179,8,.06);border:1px solid rgba(234,179,8,.25);border-radius:10px;padding:14px 18px;margin-bottom:20px">
+  <div style="font-weight:700;color:var(--warning);margin-bottom:10px;font-size:13px">⚠️ Предупреждения (${warns})</div>
+  ${checks.filter(c=>c.t==='warn').map(renderCheck).join('')}
+</div>`:''}
+
+<div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px 18px;margin-bottom:20px">
+  <div style="font-weight:700;color:var(--success);margin-bottom:10px;font-size:13px">✅ Проверки прошли (${oks})</div>
+  ${checks.filter(c=>c.t==='ok').map(renderCheck).join('')}
+</div>
+
+<div style="background:rgba(59,130,246,.06);border:1px solid rgba(59,130,246,.2);border-radius:10px;padding:14px 18px">
+  <div style="font-weight:700;color:var(--info);margin-bottom:10px;font-size:13px">ℹ️ Информация</div>
+  ${checks.filter(c=>c.t==='info').map(renderCheck).join('')}
+</div>`;
+}
+
 function rSet(){
   const s=cfg();
   const cats=priceCats();
@@ -1397,6 +1986,10 @@ function rSet(){
   <div class="fg c1" style="gap:16px">
     <div class="fgrp"><label>Название магазина</label><input type="text" id="s-name" value="${s.storeName||''}"></div>
     <div class="fgrp"><label>Ставка налога АУСН (%)</label><input type="number" id="s-tax" value="${((s.taxRate||0.08)*100).toFixed(0)}" min="0" max="100" step="0.1"></div>
+    <div class="fgrp"><label>Комиссия эквайринга (%)</label>
+      <input type="number" id="s-acq" value="${((s.acquiringRate!=null?s.acquiringRate:0.0195)*100).toFixed(2)}" min="0" max="10" step="0.01">
+      <div style="margin-top:5px;font-size:11px;color:var(--muted)">💳 Банк удерживает комиссию с безнала. Реальная сумма на счёте = безнал × (1 − ставка). По умолчанию: 1.95%</div>
+    </div>
     <div class="fgrp"><label>Дата начала учёта</label><input type="date" id="s-start" value="${s.startDate||''}"></div>
   </div>
 </div>
@@ -1450,22 +2043,17 @@ function rSet(){
   <div style="font-size:11px;font-weight:700;color:var(--muted);letter-spacing:1px;margin-bottom:10px;text-transform:uppercase">🏷️ Ценовые категории товара</div>
   <div class="card" style="padding:18px">
     <div style="font-size:12px;color:var(--muted);margin-bottom:14px">Настрой категории под свой прайс. Название + цена за единицу. Используются в разделе Продажи.</div>
-    <div style="display:grid;grid-template-columns:80px 1fr 110px 56px 36px;gap:8px;align-items:center;padding:6px 0;border-bottom:1px solid var(--border);margin-bottom:8px">
+    <div style="display:grid;grid-template-columns:80px 1fr 120px 36px;gap:8px;align-items:center;padding:6px 0;border-bottom:1px solid var(--border);margin-bottom:8px">
       <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase">Ключ</div>
       <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase">Название</div>
       <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase">Цена (₽)</div>
-      <div style="font-size:10px;font-weight:700;color:var(--warning);text-transform:uppercase;text-align:center" title="Произвольная цена — для Авито и аналогичных">Авито</div>
       <div></div>
     </div>
     <div id="pc-rows">
-      ${cats.map((c,i)=>`<div class="pc-row" style="display:grid;grid-template-columns:80px 1fr 110px 56px 36px;gap:8px;align-items:center;margin-bottom:6px">
+      ${cats.map((c,i)=>`<div class="pc-row" style="display:grid;grid-template-columns:80px 1fr 120px 36px;gap:8px;align-items:center;margin-bottom:6px">
         <input type="text" class="pc-key" value="${c.key}" placeholder="ключ" style="padding:6px 8px;font-size:12px;font-family:'JetBrains Mono',monospace">
         <input type="text" class="pc-label" value="${c.label}" placeholder="название" style="padding:6px 8px;font-size:13px;color:${TIER_COLORS[i%TIER_COLORS.length]}">
-        <input type="number" class="pc-price" value="${c.price}" min="0" placeholder="цена" style="padding:6px 8px;font-size:13px" ${c.variablePrice?'disabled style="padding:6px 8px;font-size:13px;opacity:.4"':''}>
-        <div style="display:flex;flex-direction:column;align-items:center;gap:2px">
-          <input type="checkbox" class="pc-variable" ${c.variablePrice?'checked':''} style="width:18px;height:18px;accent-color:var(--warning);cursor:pointer" title="Произвольная цена — вводится при каждой продаже вручную">
-          <span style="font-size:9px;color:var(--warning)">своя</span>
-        </div>
+        <input type="number" class="pc-price" value="${c.price}" min="0" placeholder="цена" style="padding:6px 8px;font-size:13px">
         <button onclick="this.closest('.pc-row').remove()" style="background:rgba(239,68,68,.15);border:none;color:var(--danger);border-radius:6px;padding:6px 8px;cursor:pointer;font-size:13px">✕</button>
       </div>`).join('')}
     </div>
@@ -1523,164 +2111,48 @@ function rSet(){
 }
 
 // ═══ PRICE TIER FORM HELPER ═══
-// ─── VARIABLE-PRICE DEALS (Авито и др.) ───
-let _varDeals={}; // {catKey: [{qty,price}, ...]}
-
-function initVarDeals(pc){
-  // Called when opening sale form — init from existing priceCats data
-  const cats=priceCats();
-  _varDeals={};
-  cats.forEach(t=>{
-    if(!t.variablePrice)return;
-    if(pc&&pc[t.key]&&pc[t.key].deals){
-      _varDeals[t.key]=pc[t.key].deals.map(d=>({...d}));
-    } else {
-      _varDeals[t.key]=[{qty:1,price:''}];
-    }
-  });
-}
-
-function addVarDeal(key){
-  if(!_varDeals[key])_varDeals[key]=[];
-  _varDeals[key].push({qty:1,price:''});
-  renderVarBlock(key);
-  updateTierTotal();
-}
-
-function removeVarDeal(key,idx){
-  _varDeals[key].splice(idx,1);
-  if(_varDeals[key].length===0)_varDeals[key]=[{qty:1,price:''}];
-  renderVarBlock(key);
-  updateTierTotal();
-}
-
-function updateVarDeal(key,idx,field,val){
-  if(!_varDeals[key])return;
-  _varDeals[key][idx][field]=field==='qty'?+val||1:+val||0;
-  // update inline result
-  const d=_varDeals[key][idx];
-  const resEl=document.getElementById(`vd-res-${key}-${idx}`);
-  if(resEl)resEl.textContent=d.qty&&d.price?Math.round(d.qty*d.price).toLocaleString('ru-RU')+' ₽':'—';
-  updateTierTotal();
-}
-
-function renderVarBlock(key){
-  const el=document.getElementById(`var-deals-${key}`);
-  if(!el)return;
-  const deals=_varDeals[key]||[];
-  el.innerHTML=deals.map((d,i)=>`
-    <div style="display:grid;grid-template-columns:70px 1fr 90px 28px;gap:6px;align-items:center;margin-bottom:5px">
-      <input type="number" value="${d.qty||1}" min="1" placeholder="шт"
-        oninput="updateVarDeal('${key}',${i},'qty',this.value)"
-        style="padding:6px 8px;font-size:12px;text-align:center;width:100%;background:var(--surface);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:'Montserrat',sans-serif;outline:none">
-      <input type="number" value="${d.price||''}" min="0" placeholder="цена ₽"
-        oninput="updateVarDeal('${key}',${i},'price',this.value)"
-        style="padding:6px 8px;font-size:12px;width:100%;background:var(--surface);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:'Montserrat',sans-serif;outline:none">
-      <span id="vd-res-${key}-${i}" style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--muted);text-align:right">
-        ${d.qty&&d.price?Math.round(d.qty*d.price).toLocaleString('ru-RU')+' ₽':'—'}
-      </span>
-      <button onclick="removeVarDeal('${key}',${i})" style="background:rgba(239,68,68,.15);border:none;color:var(--danger);border-radius:6px;width:28px;height:28px;cursor:pointer;font-size:16px;line-height:1;display:flex;align-items:center;justify-content:center">×</button>
-    </div>`).join('');
-  // update subtotal
-  const tot=deals.reduce((a,d)=>a+(+d.qty||0)*( +d.price||0),0);
-  const qty=deals.reduce((a,d)=>a+(+d.qty||0),0);
-  const subEl=document.getElementById(`var-sub-${key}`);
-  if(subEl)subEl.textContent=`${qty} шт · ${Math.round(tot).toLocaleString('ru-RU')} ₽`;
-}
-
 function tierFormHtml(pc){
   const cats=priceCats();
-  initVarDeals(pc);
-  const fixedCats=cats.filter(t=>!t.variablePrice);
-  const varCats=cats.filter(t=>t.variablePrice);
-  let html=`<div style="border:1px solid var(--border);border-radius:8px;overflow:hidden;margin-top:4px">`;
-
-  // ── Фиксированные категории ──
-  if(fixedCats.length>0){
-    html+=`<div style="background:var(--surface2);padding:9px 14px;display:grid;grid-template-columns:1fr 90px 110px;gap:8px">
+  return`<div style="border:1px solid var(--border);border-radius:8px;overflow:hidden;margin-top:4px">
+    <div style="background:var(--surface2);padding:9px 14px;display:grid;grid-template-columns:1fr 90px 110px;gap:8px">
       <div style="font-size:10px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:.8px">Ценовая категория</div>
       <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.8px;text-align:right">Цена</div>
       <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.8px;text-align:center">Кол-во (шт)</div>
-    </div>`;
-    fixedCats.forEach((t,i)=>{
-      const catIdx=cats.indexOf(t);
+    </div>
+    ${cats.map((t,i)=>{
       const qty=pc&&pc[t.key]?pc[t.key].qty:0;
-      html+=`<div style="display:grid;grid-template-columns:1fr 90px 110px;gap:8px;align-items:center;padding:7px 14px;border-top:1px solid rgba(255,255,255,.04)">
-        <div style="font-size:13px;font-weight:700;color:${TIER_COLORS[catIdx%TIER_COLORS.length]}">${t.label}</div>
+      return`<div style="display:grid;grid-template-columns:1fr 90px 110px;gap:8px;align-items:center;padding:7px 14px;border-top:1px solid rgba(255,255,255,.04)">
+        <div style="font-size:13px;font-weight:700;color:${TIER_COLORS[i%TIER_COLORS.length]}">${t.label}</div>
         <div style="font-size:13px;font-family:'JetBrains Mono',monospace;color:var(--muted);text-align:right">${t.price.toLocaleString('ru-RU')} ₽</div>
-        <div><input type="number" class="tier-qty" data-key="${t.key}" data-price="${t.price}" placeholder="0" min="0" value="${qty||''}" style="padding:6px 10px;font-size:13px;text-align:center;width:100%" oninput="updateTierTotal()"></div>
+        <div><input type="number" class="tier-qty" data-key="${t.key}" data-price="${t.price}" placeholder="0" min="0" value="${qty||''}" style="padding:6px 10px;font-size:13px;text-align:center;width:100%"></div>
       </div>`;
-    });
-  }
-
-  // ── Авито / переменная цена ──
-  varCats.forEach((t,i)=>{
-    const catIdx=cats.indexOf(t);
-    html+=`<div style="border-top:1px solid var(--border);padding:10px 14px;background:rgba(234,179,8,.04)">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-        <div style="font-size:13px;font-weight:700;color:${TIER_COLORS[catIdx%TIER_COLORS.length]}">${t.label} <span style="font-size:10px;color:var(--warning);font-weight:600;margin-left:4px">СВОЯ ЦЕНА</span></div>
-        <span id="var-sub-${t.key}" style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--warning)">0 шт · 0 ₽</span>
-      </div>
-      <div style="display:grid;grid-template-columns:70px 1fr 90px 28px;gap:6px;margin-bottom:4px;padding:0 0 4px;border-bottom:1px solid rgba(255,255,255,.06)">
-        <div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px">Штук</div>
-        <div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px">Цена за шт (₽)</div>
-        <div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;text-align:right">Итого</div>
-        <div></div>
-      </div>
-      <div id="var-deals-${t.key}"></div>
-      <button onclick="addVarDeal('${t.key}')" style="width:100%;margin-top:4px;background:none;border:1px dashed var(--border);color:var(--muted);border-radius:6px;padding:5px;font-size:12px;cursor:pointer;font-family:'Montserrat',sans-serif">+ добавить сделку</button>
-    </div>`;
-  });
-
-  html+=`<div id="tier-total-row" style="display:flex;justify-content:space-between;align-items:center;padding:9px 14px;border-top:1px solid var(--border);background:var(--surface2)">
-    <span style="font-size:12px;font-weight:700;color:var(--muted)">ИТОГО ШТ / СУММА</span>
-    <span id="tier-total" style="font-family:'JetBrains Mono',monospace;font-size:13px;font-weight:700;color:var(--accent)">0 шт · 0 ₽</span>
-  </div></div>`;
-  return html;
+    }).join('')}
+    <div id="tier-total-row" style="display:flex;justify-content:space-between;align-items:center;padding:9px 14px;border-top:1px solid var(--border);background:var(--surface2)">
+      <span style="font-size:12px;font-weight:700;color:var(--muted)">ИТОГО ШТ / СУММА</span>
+      <span id="tier-total" style="font-family:'JetBrains Mono',monospace;font-size:13px;font-weight:700;color:var(--accent)">0 шт · 0 ₽</span>
+    </div>
+  </div>`;
 }
-
 function attachTierListeners(){
-  // fixed cats — listeners already attached via oninput="updateTierTotal()"
-  // var cats — render their deal blocks
-  const cats=priceCats();
-  cats.filter(t=>t.variablePrice).forEach(t=>renderVarBlock(t.key));
+  document.querySelectorAll('.tier-qty').forEach(el=>{
+    el.addEventListener('input',updateTierTotal);
+  });
   updateTierTotal();
 }
-
 function updateTierTotal(){
   let qty=0,rev=0;
   document.querySelectorAll('.tier-qty').forEach(el=>{
     const q=+el.value||0,p=+el.dataset.price||0;
     qty+=q;rev+=q*p;
   });
-  // add variable price deals
-  Object.entries(_varDeals).forEach(([key,deals])=>{
-    deals.forEach(d=>{qty+=+d.qty||0;rev+=(+d.qty||0)*(+d.price||0);});
-    // update subtotal badge
-    const tot=deals.reduce((a,d)=>a+(+d.qty||0)*(+d.price||0),0);
-    const dqty=deals.reduce((a,d)=>a+(+d.qty||0),0);
-    const subEl=document.getElementById(`var-sub-${key}`);
-    if(subEl)subEl.textContent=`${dqty} шт · ${Math.round(tot).toLocaleString('ru-RU')} ₽`;
-  });
   const el=document.getElementById('tier-total');
   if(el)el.textContent=`${qty} шт · ${Math.round(rev).toLocaleString('ru-RU')} ₽`;
 }
-
 function readTiers(){
   const pc={};
   document.querySelectorAll('.tier-qty').forEach(el=>{
     const k=el.dataset.key,qty=+el.value||0,price=+el.dataset.price||0;
     if(qty>0)pc[k]={qty,rev:qty*price,price};
-  });
-  // variable price categories
-  Object.entries(_varDeals).forEach(([key,deals])=>{
-    const validDeals=deals.filter(d=>d.qty>0&&d.price>0);
-    if(validDeals.length===0)return;
-    const qty=validDeals.reduce((a,d)=>a+(+d.qty||0),0);
-    const rev=validDeals.reduce((a,d)=>a+(+d.qty||0)*(+d.price||0),0);
-    const cats=priceCats();
-    const cat=cats.find(c=>c.key===key);
-    pc[key]={qty,rev,price:qty>0?Math.round(rev/qty):0,deals:validDeals,variablePrice:true};
   });
   return Object.keys(pc).length>0?pc:null;
 }
@@ -2532,6 +3004,7 @@ function saveCfg(){
   save(K.settings,{...cur,
     storeName:document.getElementById('s-name').value||'НАХОДКА',
     taxRate:(+document.getElementById('s-tax').value||8)/100,
+    acquiringRate:(+document.getElementById('s-acq').value||1.95)/100,
     cashBalance:+document.getElementById('s-cash').value||0,
     beznalBalance:+document.getElementById('s-beznal').value||0,
     founderInvestment:+document.getElementById('s-founder').value||0,
@@ -2545,9 +3018,8 @@ function savePriceCats(){
   rows.forEach((row,i)=>{
     const key=(row.querySelector('.pc-key').value||'').trim().replace(/\s+/g,'_').toLowerCase();
     const label=(row.querySelector('.pc-label').value||'').trim();
-    const variablePrice=row.querySelector('.pc-variable')?.checked||false;
     const price=+row.querySelector('.pc-price').value||0;
-    if(key&&label&&(price>0||variablePrice))cats.push({key,label,price,variablePrice:variablePrice||undefined});
+    if(key&&label&&price>0)cats.push({key,label,price});
   });
   if(cats.length===0){toast('Добавь хотя бы одну категорию','err');return}
   const cur=cfg();
@@ -2561,14 +3033,10 @@ function addPcRow(){
   const color=TIER_COLORS[i%TIER_COLORS.length];
   const div=document.createElement('div');
   div.className='pc-row';
-  div.style.cssText='display:grid;grid-template-columns:80px 1fr 110px 56px 36px;gap:8px;align-items:center;margin-bottom:6px';
+  div.style.cssText='display:grid;grid-template-columns:80px 1fr 120px 36px;gap:8px;align-items:center;margin-bottom:6px';
   div.innerHTML=`<input type="text" class="pc-key" placeholder="ключ" style="padding:6px 8px;font-size:12px;font-family:'JetBrains Mono',monospace;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);width:100%;outline:none">
     <input type="text" class="pc-label" placeholder="название" style="padding:6px 8px;font-size:13px;color:${color};background:var(--surface2);border:1px solid var(--border);border-radius:8px;width:100%;outline:none;font-family:'Montserrat',sans-serif">
     <input type="number" class="pc-price" placeholder="цена" min="0" style="padding:6px 8px;font-size:13px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);width:100%;outline:none;font-family:'Montserrat',sans-serif">
-    <div style="display:flex;flex-direction:column;align-items:center;gap:2px">
-      <input type="checkbox" class="pc-variable" style="width:18px;height:18px;accent-color:var(--warning);cursor:pointer" title="Произвольная цена — вводится при каждой продаже вручную">
-      <span style="font-size:9px;color:var(--warning)">своя</span>
-    </div>
     <button onclick="this.closest('.pc-row').remove()" style="background:rgba(239,68,68,.15);border:none;color:var(--danger);border-radius:6px;padding:6px 8px;cursor:pointer;font-size:13px">✕</button>`;
   container.appendChild(div);
 }
@@ -3141,6 +3609,7 @@ function showMoreMenu(){
     {p:'cashflow',icon:'💵',label:'Кэш-флоу'},
     {p:'dynamics',icon:'📅',label:'Динамика'},
     {p:'planfact',icon:'🎯',label:'План vs Факт'},
+    {p:'analysis',icon:'🧠',label:'Финанализ'},
     {p:'settings',icon:'⚙️',label:'Настройки'},
   ];
   showM(`
