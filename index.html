@@ -249,7 +249,7 @@ body.is-view-mode #gist-pub-btn{display:none!important}
 
 <script>
 // ═══ STORAGE ═══
-const K={settings:'nk_settings',sales:'nk_sales',expenses:'nk_expenses',batches:'nk_batches',plans:'nk_plans',inventory:'nk_inventory'};
+const K={settings:'nk_settings',sales:'nk_sales',expenses:'nk_expenses',batches:'nk_batches',plans:'nk_plans',inventory:'nk_inventory',avito:'nk_avito'};
 const DEF={taxRate:.08,cashBalance:0,beznalBalance:0,storeName:'НАХОДКА',startDate:'2026-03-23',acquiringRate:0.0195};
 const CATS=['Товар/Палеты','Доставка','Аренда','Зарплата','Маркетинг','Прочее','Ремонт','Оборудование'];
 const GOCAT=['Одежда женская','Одежда мужская','Одежда детская','Обувь','Аксессуары','Текстиль','Посуда','Игрушки','Электроника','Книги','Прочее'];
@@ -270,6 +270,7 @@ function load(k){try{const r=localStorage.getItem(k);return r?JSON.parse(r):null
 function save(k,d){try{localStorage.setItem(k,JSON.stringify(d))}catch{}}
 function cfg(){return load(K.settings)||{...DEF}}
 function sales(){return load(K.sales)||[]}
+function avitoSales(){return load(K.avito)||[]}
 function exps(){return load(K.expenses)||[]}
 function batches(){return load(K.batches)||[]}
 function plans(){return load(K.plans)||[]}
@@ -306,23 +307,26 @@ function ml(ym){const[y,m]=ym.split('-');const mn=['','Январь','Февра
 function calcPeriod(f,t){
   const s=cfg();
   const ms=sales().filter(x=>x.date>=f&&x.date<=t);
+  const av=avitoSales().filter(x=>x.date>=f&&x.date<=t);
   const me=exps().filter(x=>x.date>=f&&x.date<=t);
   const mb=batches().filter(x=>x.date>=f&&x.date<=t);
-  const rev=ms.reduce((a,x)=>a+(x.nal||0)+(x.beznal||0),0);
+  const revShop=ms.reduce((a,x)=>a+(x.nal||0)+(x.beznal||0),0);
+  const revAvito=av.reduce((a,x)=>a+(x.total||0),0);
+  const rev=revShop+revAvito;
   const opexp=me.filter(x=>x.category!=='Товар/Палеты'&&x.category!=='Доставка').reduce((a,x)=>a+(x.nal||0)+(x.beznal||0),0);
   const cogs=mb.reduce((a,x)=>a+(x.cost||0)+(x.delivery||0),0);
   const exp=opexp+cogs;
-  const chk=ms.reduce((a,x)=>a+(x.nalChecks||0)+(x.beznalChecks||0),0);
+  const chk=ms.reduce((a,x)=>a+(x.nalChecks||0)+(x.beznalChecks||0),0)+av.length;
   const tierQty=ms.reduce((a,x)=>{const ts=tierSums(x);return a+(ts?ts.qty:0)},0);
   const tierRev=ms.reduce((a,x)=>{const ts=tierSums(x);return a+(ts?ts.rev:0)},0);
-  const items=tierQty>0?tierQty:chk;
-  const avg=items>0?(tierQty>0?tierRev:rev)/items:0;
+  const avitoQty=av.reduce((a,x)=>a+(x.qty||1),0);
+  const items=tierQty>0?tierQty+avitoQty:chk;
+  const avg=items>0?(tierQty>0?(tierRev+revAvito):rev)/items:0;
   const tax=rev*s.taxRate;
-  // tier breakdown for the period
   const cats=priceCats();
   const tierTotals={};cats.forEach(c=>{tierTotals[c.key]={qty:0,rev:0}});
   ms.forEach(x=>{if(x.priceCats)cats.forEach(c=>{if(x.priceCats[c.key]){tierTotals[c.key].qty+=x.priceCats[c.key].qty||0;tierTotals[c.key].rev+=x.priceCats[c.key].rev||0}})});
-  return{rev,exp,opexp,cogs,chk,items,tax,profit:rev-exp-tax,avg,tierTotals};
+  return{rev,exp,opexp,cogs,chk,items,tax,profit:rev-exp-tax,avg,tierTotals,revAvito,avitoQty};
 }
 
 function calcMonth(){
@@ -345,14 +349,15 @@ function calcBal(){
   const s=cfg();
   const acqRate=s.acquiringRate!=null?s.acquiringRate:0.0195;
   let c=s.cashBalance||0,b=s.beznalBalance||0;
-  // Founder capital injections (beyond starting balance) tracked via founderInjections
   (s.founderInjections||[]).forEach(x=>{if(x.type==='nal')c+=x.amount||0;else b+=x.amount||0;});
-  // Beznal arrives at bank MINUS acquiring commission (1.95% by default)
   sales().forEach(x=>{c+=x.nal||0;b+=(x.beznal||0)*(1-acqRate);});
-  // Only business-funded expenses reduce cash balance; founder-paid expenses don't touch business cash
+  // Avito deals: nal goes to cash, beznal to bank minus acquiring
+  avitoSales().forEach(x=>{
+    if(x.payType==='nal')c+=x.total||0;
+    else b+=(x.total||0)*(1-acqRate);
+  });
   exps().filter(x=>x.category!=='Товар/Палеты'&&x.category!=='Доставка'&&x.fundSource!=='founder')
     .forEach(x=>{c-=x.nal||0;b-=x.beznal||0});
-  // Each batch may have multiple payments from different sources/types
   batches().forEach(x=>{
     getBatchPayments(x).forEach(p=>{
       if(p.source==='founder')return;
@@ -368,10 +373,11 @@ function calcPnL(f,t){
   const ms=sales().filter(x=>x.date>=f&&x.date<=t);
   const me=exps().filter(x=>x.date>=f&&x.date<=t);
   const mb=batches().filter(x=>x.date>=f&&x.date<=t);
-  const rn=ms.reduce((a,x)=>a+(x.nal||0),0);
-  const rb=ms.reduce((a,x)=>a+(x.beznal||0),0);
+  const av=avitoSales().filter(x=>x.date>=f&&x.date<=t);
+  const rn=ms.reduce((a,x)=>a+(x.nal||0),0)+av.filter(x=>x.payType==='nal').reduce((a,x)=>a+(x.total||0),0);
+  const rb=ms.reduce((a,x)=>a+(x.beznal||0),0)+av.filter(x=>x.payType==='beznal').reduce((a,x)=>a+(x.total||0),0);
   const rev=rn+rb;
-  const acqFee=rb*acqRate; // комиссия эквайринга
+  const acqFee=rb*acqRate;
   const cb=mb.reduce((a,x)=>a+(x.cost||0),0);
   const cd=mb.reduce((a,x)=>a+(x.delivery||0),0);
   const cogs=cb+cd;
@@ -388,21 +394,24 @@ function calcPnL(f,t){
 
 function calcDyn(){
   const s=cfg();
-  const allDates=new Set([...sales().map(x=>mk(x.date)),...exps().map(x=>mk(x.date)),...batches().map(x=>mk(x.date))]);
+  const allDates=new Set([...sales().map(x=>mk(x.date)),...avitoSales().map(x=>mk(x.date)),...exps().map(x=>mk(x.date)),...batches().map(x=>mk(x.date))]);
   return Array.from(allDates).sort().map(ym=>{
     const ms=sales().filter(x=>x.date.startsWith(ym));
+    const av=avitoSales().filter(x=>x.date.startsWith(ym));
     const me=exps().filter(x=>x.date.startsWith(ym));
     const mb=batches().filter(x=>x.date.startsWith(ym));
-    const rev=ms.reduce((a,x)=>a+(x.nal||0)+(x.beznal||0),0);
-    // opex excludes Товар/Палеты and Доставка — tracked via Партии
+    const revShop=ms.reduce((a,x)=>a+(x.nal||0)+(x.beznal||0),0);
+    const revAvito=av.reduce((a,x)=>a+(x.total||0),0);
+    const rev=revShop+revAvito;
     const opexp=me.filter(x=>x.category!=='Товар/Палеты'&&x.category!=='Доставка').reduce((a,x)=>a+(x.nal||0)+(x.beznal||0),0);
     const cogs=mb.reduce((a,x)=>a+(x.cost||0)+(x.delivery||0),0);
     const exp=opexp+cogs;
-    const chk=ms.reduce((a,x)=>a+(x.nalChecks||0)+(x.beznalChecks||0),0);
+    const chk=ms.reduce((a,x)=>a+(x.nalChecks||0)+(x.beznalChecks||0),0)+av.length;
     const tierQty=ms.reduce((a,x)=>{const ts=tierSums(x);return a+(ts?ts.qty:0)},0);
     const tierRev=ms.reduce((a,x)=>{const ts=tierSums(x);return a+(ts?ts.rev:0)},0);
-    const items=tierQty>0?tierQty:chk;
-    const avg=items>0?(tierQty>0?tierRev:rev)/items:0;
+    const avitoQty=av.reduce((a,x)=>a+(x.qty||1),0);
+    const items=tierQty>0?tierQty+avitoQty:chk;
+    const avg=items>0?(tierQty>0?(tierRev+revAvito):rev)/items:0;
     const tax=rev*s.taxRate;
     const gp=rev-cogs;
     const net=gp-opexp-tax;
@@ -428,6 +437,16 @@ function showM(html){
 }
 function hideM(){document.getElementById('ov').classList.remove('on')}
 document.getElementById('ov').addEventListener('click',function(e){if(e.target===this)hideM()});
+
+// ═══ SCRIPT EXECUTOR (for scripts injected via innerHTML) ═══
+function execScripts(el){
+  el.querySelectorAll('script').forEach(old=>{
+    const s=document.createElement('script');
+    s.textContent=old.textContent;
+    if(old.src)s.src=old.src;
+    old.parentNode.replaceChild(s,old);
+  });
+}
 
 // ═══ RENDER ═══
 let pnlF=new Date(new Date().getFullYear(),new Date().getMonth(),1).toISOString().slice(0,10);
@@ -457,6 +476,7 @@ function render(){
   const c=document.getElementById('content');
   const pages={dashboard:rDash,sales:rSales,expenses:rExp,batches:rBatch,pnl:rPnL,cogs:rCogsPage,cashflow:rCash,dynamics:rDyn,planfact:rPF,planning:rPlanning,analysis:rAnalysis,settings:rSet,audit:rAudit};
   c.innerHTML=(pages[page]||rDash)();
+  execScripts(c);
   const s=cfg();
   document.getElementById('sb-sub').textContent=s.storeName||'Розница · Секонд-хенд';
   updateSbStats();
@@ -563,6 +583,7 @@ ${hasTiers?`<div class="card" style="margin-bottom:16px">
   <div class="card-hdr"><h3>Продажи за период</h3>
   <div style="display:flex;gap:8px">
     <button class="btn btn-sm" style="background:transparent;border:1px solid var(--accent);color:var(--accent);padding:5px 10px;font-size:12px;border-radius:7px;cursor:pointer;font-family:Montserrat,sans-serif;font-weight:600" onclick="oEvotor()">📄 CSV Эвотор</button>
+    <button class="btn btn-sm" style="background:transparent;border:1px solid var(--info);color:var(--info);padding:5px 10px;font-size:12px;border-radius:7px;cursor:pointer;font-family:Montserrat,sans-serif;font-weight:600" onclick="oAddAvitoSale()">🛒 Авито</button>
     <button class="btn btn-p btn-sm" onclick="oAddSale()">+ Вручную</button>
   </div></div>
   ${ss.length===0?'<div class="empty">Продаж за этот период нет.</div>':`
@@ -587,6 +608,7 @@ function tierBadges(pc){
 }
 function rSales(){
   const ss=sales().sort((a,b)=>b.date.localeCompare(a.date)),s=cfg();
+  const av=avitoSales().sort((a,b)=>b.date.localeCompare(a.date));
   const cats=priceCats();
   const ym=new Date().toISOString().slice(0,7);
   const msales=sales().filter(x=>x.date.startsWith(ym));
@@ -594,12 +616,27 @@ function rSales(){
   msales.forEach(x=>{if(x.priceCats)cats.forEach(t=>{if(x.priceCats[t.key]){tierTotals[t.key].qty+=x.priceCats[t.key].qty||0;tierTotals[t.key].rev+=x.priceCats[t.key].rev||0}})});
   const hasTiers=Object.values(tierTotals).some(v=>v.qty>0);
   const totalTierQty=Object.values(tierTotals).reduce((a,v)=>a+v.qty,0);
+
+  // Avito stats for current month
+  const mavito=av.filter(x=>x.date.startsWith(ym));
+  const avitoMonthRev=mavito.reduce((a,x)=>a+(x.total||0),0);
+  const avitoMonthQty=mavito.reduce((a,x)=>a+(x.qty||1),0);
+
   return`
-<div class="page-hdr"><div><div class="page-title">Продажи</div><div class="page-sub">Ежедневные итоги смены</div></div>
-<div style="display:flex;gap:10px">
+<div class="page-hdr"><div><div class="page-title">Продажи</div><div class="page-sub">Ежедневные итоги смены + Авито</div></div>
+<div style="display:flex;gap:10px;flex-wrap:wrap">
   <button class="btn btn-p" onclick="oEvotor()" style="background:var(--surface2);border:1px solid var(--accent);color:var(--accent)">📄 Загрузить из Эвотора</button>
+  <button class="btn btn-p" style="background:var(--surface2);border:1px solid var(--info);color:var(--info)" onclick="oAddAvitoSale()">🛒 + Авито</button>
   <button class="btn btn-p" onclick="oAddSale()">+ Вручную</button>
 </div></div>
+
+${avitoMonthRev>0?`<div style="background:rgba(59,130,246,.08);border:1px solid rgba(59,130,246,.3);border-radius:10px;padding:12px 18px;margin-bottom:16px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">
+  <div style="font-size:13px;font-weight:600;color:var(--info)">🛒 Авито в этом месяце</div>
+  <div style="display:flex;gap:20px;align-items:center">
+    <span style="font-size:12px;color:var(--muted)">${mavito.length} сделок · ${avitoMonthQty} шт</span>
+    <span style="font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:var(--info)">${fr(avitoMonthRev)}</span>
+  </div>
+</div>`:''}
 
 ${hasTiers?`<div class="card" style="margin-bottom:16px">
   <div class="card-hdr"><h3>📊 Продажи по ценовым категориям — текущий месяц</h3><span style="font-size:12px;color:var(--muted)">${totalTierQty} шт итого</span></div>
@@ -620,50 +657,37 @@ ${hasTiers?`<div class="card" style="margin-bottom:16px">
 </div>`:''}
 
 <div class="card">
+  <div class="card-hdr"><h3>💰 Продажи магазина (Эвотор / Вручную)</h3></div>
   ${ss.length===0?'<div class="empty">Нет записей. Нажмите «📄 Загрузить из Эвотора» или «+ Вручную»</div>':`
-  <div class="tbl-wrap"><table><thead><tr><th>Дата</th><th class="r">НАЛ</th><th class="r">БЕЗНАЛ</th><th class="r">Итого</th><th class="r">Чеков</th><th class="r">Штук продано</th><th class="r">Ср. цена/шт</th><th class="r">Налог АУСН</th><th>Ценовые категории</th><th>Источник</th><th class="sticky-r"></th></tr></thead>
+  <div class="tbl-wrap"><table><thead><tr><th>Дата</th><th class="r">НАЛ</th><th class="r">БЕЗНАЛ</th><th class="r">Итого</th><th class="r">Чеков</th><th class="r">Штук</th><th class="r">Ср. цена/шт</th><th class="r">Налог АУСН</th><th>Категории</th><th>Источник</th><th class="sticky-r"></th></tr></thead>
   <tbody>${ss.map(x=>{const t=(x.nal||0)+(x.beznal||0),chk=(x.nalChecks||0)+(x.beznalChecks||0),ts=tierSums(x),items=ts?ts.qty:chk,avgP=avgPerItem(x),tax=t*s.taxRate;return`<tr>
     <td>${fd(x.date)}</td><td class="r">${x.nal?fr(x.nal):'—'}</td><td class="r">${x.beznal?fr(x.beznal):'—'}</td>
     <td class="r" style="color:var(--accent);font-weight:600">${fr(t)}</td>
     <td class="r dim">${chk||'—'}</td>
-    <td class="r" style="font-weight:600;color:var(--text)">${items||'—'}</td>
-    <td class="r">${avgP?fr(avgP):'—'}${ts&&chk?' <span style="font-size:9px;color:var(--muted)" title="Считается по штукам из ценовых категорий">★</span>':''}</td>
+    <td class="r" style="font-weight:600">${items||'—'}</td>
+    <td class="r">${avgP?fr(avgP):'—'}${ts&&chk?' <span style="font-size:9px;color:var(--muted)">★</span>':''}</td>
     <td class="r dim">${fr(tax)}</td>
-    <td style="min-width:180px;white-space:normal">${tierBadges(x.priceCats)||'<span style="color:var(--muted);font-size:11px">—</span>'}</td>
+    <td style="min-width:160px;white-space:normal">${tierBadges(x.priceCats)||'<span style="color:var(--muted);font-size:11px">—</span>'}</td>
     <td><span class="badge ${x.source==='evotor'?'b-ok':'b-dim'}" style="font-size:10px">${x.source==='evotor'?'📄 CSV':'✏️ Вручную'}</span></td>
     <td class="sticky-r"><div class="row-acts"><button class="btn-e" onclick="oEditSale('${x.id}')">✏️</button><button class="btn-d" onclick="delSale('${x.id}')">✕</button></div></td></tr>`}).join('')}
   </tbody></table></div>`}
-</div>`;
-  return`
-<div class="page-hdr"><div><div class="page-title">Продажи</div><div class="page-sub">Ежедневные итоги смены</div></div>
-<div style="display:flex;gap:10px">
-  <button class="btn btn-p" onclick="oEvotor()" style="background:var(--surface2);border:1px solid var(--accent);color:var(--accent)">📄 Загрузить из Эвотора</button>
-  <button class="btn btn-p" onclick="oAddSale()">+ Вручную</button>
-</div></div>
-
-${hasTiers?`<div class="card" style="margin-bottom:16px">
-  <div class="card-hdr"><h3>📊 Структура продаж по ценам — текущий месяц</h3></div>
-  <div style="display:flex;gap:0;overflow:hidden">
-    ${PRICE_TIERS.map((t,i)=>{const d=tierTotals[t.key];return d.qty>0?`<div style="flex:${d.qty};background:${TIER_COLORS[i]}22;border-right:1px solid var(--bg);padding:12px 14px;min-width:0">
-      <div style="font-size:10px;font-weight:700;color:${TIER_COLORS[i]};margin-bottom:4px">${t.label}</div>
-      <div style="font-family:'JetBrains Mono',monospace;font-size:15px;font-weight:700;color:var(--text)">${d.qty} шт</div>
-      ${d.rev?`<div style="font-size:11px;color:var(--muted);margin-top:2px">${fr(d.rev)}</div>`:''}
-    </div>`:''}).join('')}
-  </div>
-</div>`:''}
+</div>
 
 <div class="card">
-  ${ss.length===0?'<div class="empty">Нет записей. Нажмите «📄 Загрузить из Эвотора» или «+ Вручную»</div>':`
-  <table><thead><tr><th>Дата</th><th class="r">НАЛ</th><th class="r">БЕЗНАЛ</th><th class="r">Итого</th><th class="r">Чеки нал</th><th class="r">Чеки безнал</th><th class="r">Ср. чек</th><th class="r">Налог АУСН</th><th>Ценовые тиры</th><th>Источник</th><th></th></tr></thead>
-  <tbody>${ss.map(x=>{const t=(x.nal||0)+(x.beznal||0),chk=(x.nalChecks||0)+(x.beznalChecks||0),avg=chk>0?t/chk:0,tax=t*s.taxRate;return`<tr>
-    <td>${fd(x.date)}</td><td class="r">${x.nal?fr(x.nal):'—'}</td><td class="r">${x.beznal?fr(x.beznal):'—'}</td>
-    <td class="r" style="color:var(--accent);font-weight:600">${fr(t)}</td>
-    <td class="r dim">${x.nalChecks||'—'}</td><td class="r dim">${x.beznalChecks||'—'}</td>
-    <td class="r">${avg?fr(avg):'—'}</td><td class="r dim">${fr(tax)}</td>
-    <td style="min-width:160px">${tierBadges(x.priceCats)||'<span style="color:var(--muted);font-size:11px">—</span>'}</td>
-    <td><span class="badge ${x.source==='evotor'?'b-ok':'b-dim'}" style="font-size:10px">${x.source==='evotor'?'📄 CSV':'✏️ Вручную'}</span></td>
-    <td><div class="row-acts"><button class="btn-e" onclick="oEditSale('${x.id}')">✏️</button><button class="btn-d" onclick="delSale('${x.id}')">✕</button></div></td></tr>`}).join('')}
-  </tbody></table>`}
+  <div class="card-hdr"><h3>🛒 Сделки Авито</h3>${av.length>0?`<span style="font-size:12px;color:var(--muted)">${av.length} сделок · ${fr(av.reduce((a,x)=>a+(x.total||0),0))}</span>`:''}</div>
+  ${av.length===0?'<div class="empty">Нет сделок Авито. Нажмите «🛒 + Авито»</div>':`
+  <div class="tbl-wrap"><table><thead><tr><th>Дата</th><th>Описание</th><th class="r">Цена/шт</th><th class="r">Кол-во</th><th class="r">Итого</th><th>Оплата</th><th class="r">Налог АУСН</th><th>Примечание</th><th class="sticky-r"></th></tr></thead>
+  <tbody>${av.map(x=>{const tax=(x.total||0)*s.taxRate;return`<tr>
+    <td>${fd(x.date)}</td>
+    <td style="font-weight:500;color:var(--info)">${x.desc||'—'}</td>
+    <td class="r" style="font-family:'JetBrains Mono',monospace">${fr(x.price||x.total||0)}</td>
+    <td class="r dim">${x.qty||1}</td>
+    <td class="r" style="color:var(--accent);font-weight:700">${fr(x.total||0)}</td>
+    <td><span class="badge ${x.payType==='nal'?'b-ok':'b-info'}" style="font-size:10px">${x.payType==='nal'?'💵 НАЛ':'💳 БЕЗНАЛ'}</span></td>
+    <td class="r dim">${fr(tax)}</td>
+    <td class="dim" style="font-size:11px">${x.note||'—'}</td>
+    <td class="sticky-r"><div class="row-acts"><button class="btn-e" onclick="oEditAvito('${x.id}')">✏️</button><button class="btn-d" onclick="delAvito('${x.id}')">✕</button></div></td></tr>`;}).join('')}
+  </tbody></table></div>`}
 </div>`;
 }
 
@@ -2915,6 +2939,123 @@ function svSale(){
 }
 function delSale(id){if(!confirm('Удалить запись?'))return;save(K.sales,sales().filter(x=>x.id!==id));render()}
 
+// ─── AVITO SALE ───
+function oAddAvitoSale(){
+  showM(`
+<div class="m-hdr"><h2>🛒 Сделка Авито</h2><button class="m-x" onclick="hideM()">×</button></div>
+<div style="background:rgba(59,130,246,.08);border:1px solid rgba(59,130,246,.25);border-radius:10px;padding:10px 14px;margin-bottom:14px;font-size:12px;color:var(--muted)">
+  <b style="color:var(--info)">Авито — произвольная цена</b> · каждая сделка хранится отдельно
+</div>
+<div id="avito-rows">
+  <div class="avito-row" style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:10px">
+    <div class="fg" style="margin-bottom:10px">
+      <div class="fgrp full"><label>Дата</label><input type="date" class="av-date" value="${today()}"></div>
+      <div class="fgrp full"><label>Описание товара</label><input type="text" class="av-desc" placeholder="Куртка зимняя, джинсы..."></div>
+      <div class="fgrp"><label>Цена за шт (₽)</label><input type="number" class="av-price" placeholder="0" min="0" oninput="updateAvitoTotal(this)"></div>
+      <div class="fgrp"><label>Кол-во</label><input type="number" class="av-qty" value="1" min="1" oninput="updateAvitoTotal(this)"></div>
+    </div>
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">
+      <select class="av-pay" style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);padding:7px 10px;font-family:'Montserrat',sans-serif;font-size:13px;outline:none;flex:1">
+        <option value="nal">💵 Наличные</option>
+        <option value="beznal">💳 Безналичные (перевод)</option>
+      </select>
+      <div style="font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:var(--accent)" class="av-total-lbl">0 ₽</div>
+    </div>
+    <div class="fgrp" style="margin-top:10px"><label>Примечание</label><input type="text" class="av-note" placeholder="необязательно"></div>
+  </div>
+</div>
+<button onclick="addAvitoRow()" style="width:100%;padding:9px;border:2px dashed var(--border);border-radius:10px;background:transparent;color:var(--muted);font-size:13px;font-weight:600;cursor:pointer;font-family:'Montserrat',sans-serif;margin-bottom:4px">+ Добавить ещё одну сделку</button>
+<div class="m-foot"><button class="btn btn-g" onclick="hideM()">Отмена</button><button class="btn btn-p" onclick="svAvitoSales()">💾 Сохранить все</button></div>`)}
+
+function updateAvitoTotal(el){
+  const row=el.closest('.avito-row');
+  if(!row)return;
+  const price=+row.querySelector('.av-price').value||0;
+  const qty=+row.querySelector('.av-qty').value||1;
+  row.querySelector('.av-total-lbl').textContent=(price*qty).toLocaleString('ru-RU')+' ₽';
+}
+
+function addAvitoRow(){
+  const wrap=document.getElementById('avito-rows');
+  const lastDate=wrap.querySelector('.avito-row:last-child .av-date')?.value||today();
+  const div=document.createElement('div');
+  div.className='avito-row';
+  div.style.cssText='background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:10px;position:relative';
+  div.innerHTML=`
+    <button onclick="this.closest('.avito-row').remove()" style="position:absolute;top:10px;right:10px;background:rgba(239,68,68,.15);border:none;color:var(--danger);border-radius:6px;padding:4px 8px;cursor:pointer;font-size:13px">✕</button>
+    <div class="fg" style="margin-bottom:10px">
+      <div class="fgrp full"><label>Дата</label><input type="date" class="av-date" value="${lastDate}"></div>
+      <div class="fgrp full"><label>Описание товара</label><input type="text" class="av-desc" placeholder="Куртка зимняя, джинсы..."></div>
+      <div class="fgrp"><label>Цена за шт (₽)</label><input type="number" class="av-price" placeholder="0" min="0" oninput="updateAvitoTotal(this)"></div>
+      <div class="fgrp"><label>Кол-во</label><input type="number" class="av-qty" value="1" min="1" oninput="updateAvitoTotal(this)"></div>
+    </div>
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">
+      <select class="av-pay" style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);padding:7px 10px;font-family:'Montserrat',sans-serif;font-size:13px;outline:none;flex:1">
+        <option value="nal">💵 Наличные</option>
+        <option value="beznal">💳 Безналичные (перевод)</option>
+      </select>
+      <div style="font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:var(--accent)" class="av-total-lbl">0 ₽</div>
+    </div>
+    <div class="fgrp" style="margin-top:10px"><label>Примечание</label><input type="text" class="av-note" placeholder="необязательно"></div>`;
+  wrap.appendChild(div);
+}
+
+function svAvitoSales(){
+  const rows=document.querySelectorAll('.avito-row');
+  const newDeals=[];
+  let hasErr=false;
+  rows.forEach((row,i)=>{
+    const d=row.querySelector('.av-date').value;
+    const price=+row.querySelector('.av-price').value||0;
+    const qty=+row.querySelector('.av-qty').value||1;
+    if(!d){toast(`Сделка ${i+1}: укажи дату`,'err');hasErr=true;return;}
+    if(!price){toast(`Сделка ${i+1}: укажи цену`,'err');hasErr=true;return;}
+    newDeals.push({
+      id:gid(),date:d,
+      desc:row.querySelector('.av-desc').value||'Авито',
+      price,qty,
+      total:price*qty,
+      payType:row.querySelector('.av-pay').value,
+      note:row.querySelector('.av-note').value,
+    });
+  });
+  if(hasErr)return;
+  const all=avitoSales();
+  newDeals.forEach(d=>all.push(d));
+  save(K.avito,all);
+  hideM();render();
+  toast(`✅ Сохранено ${newDeals.length} сделок Авито`);
+}
+
+function oEditAvito(id){
+  const x=avitoSales().find(a=>a.id===id);if(!x)return;
+  showM(`
+<div class="m-hdr"><h2>✏️ Редактировать сделку Авито</h2><button class="m-x" onclick="hideM()">×</button></div>
+<div class="fg">
+  <div class="fgrp full"><label>Дата</label><input type="date" id="av-d" value="${x.date}"></div>
+  <div class="fgrp full"><label>Описание</label><input type="text" id="av-desc" value="${x.desc||''}"></div>
+  <div class="fgrp"><label>Цена за шт (₽)</label><input type="number" id="av-price" value="${x.price||x.total||0}" min="0"></div>
+  <div class="fgrp"><label>Кол-во</label><input type="number" id="av-qty" value="${x.qty||1}" min="1"></div>
+  <div class="fgrp full"><label>Способ оплаты</label>
+    <select id="av-pay">
+      <option value="nal" ${x.payType==='nal'?'selected':''}>💵 Наличные</option>
+      <option value="beznal" ${x.payType==='beznal'?'selected':''}>💳 Безналичные</option>
+    </select>
+  </div>
+  <div class="fgrp full"><label>Примечание</label><input type="text" id="av-note" value="${x.note||''}"></div>
+</div>
+<div class="m-foot"><button class="btn btn-g" onclick="hideM()">Отмена</button><button class="btn btn-p" onclick="svEditAvito('${id}')">💾 Сохранить</button></div>`)}
+
+function svEditAvito(id){
+  const d=document.getElementById('av-d').value;if(!d){toast('Укажи дату','err');return}
+  const price=+document.getElementById('av-price').value||0;
+  const qty=+document.getElementById('av-qty').value||1;
+  const all=avitoSales().map(x=>x.id===id?{...x,date:d,desc:document.getElementById('av-desc').value,price,qty,total:price*qty,payType:document.getElementById('av-pay').value,note:document.getElementById('av-note').value}:x);
+  save(K.avito,all);hideM();render();
+}
+
+function delAvito(id){if(!confirm('Удалить сделку Авито?'))return;save(K.avito,avitoSales().filter(x=>x.id!==id));render();}
+
 function oAddExp(){showM(`
 <div class="m-hdr"><h2>Добавить расход</h2><button class="m-x" onclick="hideM()">×</button></div>
 <div class="fg">
@@ -3075,7 +3216,7 @@ function svPlans(){
 }
 
 function expData(){
-  const d={settings:cfg(),sales:sales(),expenses:exps(),batches:batches(),plans:plans(),inventory:inventory(),exportDate:new Date().toISOString()};
+  const d={settings:cfg(),sales:sales(),expenses:exps(),batches:batches(),plans:plans(),inventory:inventory(),avito:avitoSales(),exportDate:new Date().toISOString()};
   const blob=new Blob([JSON.stringify(d,null,2)],{type:'application/json'});
   const url=URL.createObjectURL(blob),a=document.createElement('a');
   a.href=url;a.download=`nakhodka_backup_${today()}.json`;a.click();URL.revokeObjectURL(url);
@@ -3087,7 +3228,6 @@ function impData(input){
   r.onload=e=>{try{
     const d=JSON.parse(e.target.result);
     if(d.settings){
-      // Preserve GitHub token and gistId from current browser — never overwrite with imported value
       const cur=cfg();
       const merged={...d.settings};
       if(cur.githubToken)merged.githubToken=cur.githubToken;
@@ -3099,6 +3239,7 @@ function impData(input){
     if(d.batches)save(K.batches,d.batches);
     if(d.plans)save(K.plans,d.plans);
     if(d.inventory)save(K.inventory,d.inventory);
+    if(d.avito)save(K.avito,d.avito);
     toast('✅ Данные импортированы');render();
   }catch(err){toast('❌ Ошибка импорта: '+err.message,'err',5000)}};
   r.readAsText(file);input.value='';
@@ -3476,7 +3617,7 @@ async function publishToGist(){
     const safeSettings=(()=>{const s={...cfg()};delete s.githubToken;delete s.gistId;return s;})();
     const data={
       settings:safeSettings,sales:sales(),expenses:exps(),
-      batches:batches(),plans:plans(),inventory:inventory(),
+      batches:batches(),plans:plans(),inventory:inventory(),avito:avitoSales(),
       publishedAt:new Date().toISOString()
     };
     const body={
@@ -3569,6 +3710,7 @@ async function initViewMode(){
     if(_gistData.batches)save(K.batches,_gistData.batches);
     if(_gistData.plans)save(K.plans,_gistData.plans);
     if(_gistData.inventory)save(K.inventory,_gistData.inventory);
+    if(_gistData.avito)save(K.avito,_gistData.avito);
     // Remove github token from view mode settings for security
     // Never delete githubToken — owner may open own link; only clear gistId to prevent confusion
     const s=cfg();const ownerToken=s.githubToken;delete s.gistId;if(!ownerToken)delete s.githubToken;save(K.settings,s);
@@ -3639,12 +3781,13 @@ function toast(msg, type='ok', dur=3500){
 // ═══ DATA COUNTER SIDEBAR ═══
 function updateSbStats(){
   const el=document.getElementById('sb-stats');if(!el)return;
-  const ss=sales().length,ee=exps().length,bb=batches().length;
+  const ss=sales().length,ee=exps().length,bb=batches().length,aa=avitoSales().length;
   const lastSale=sales().sort((a,b)=>b.date.localeCompare(a.date))[0];
   const lastDate=lastSale?'последняя: '+fd(lastSale.date):'нет данных';
   el.innerHTML=`
     <div style="color:var(--text);font-weight:700;margin-bottom:4px">📦 В браузере:</div>
     <div>💰 Продажи: <b style="color:var(--accent)">${ss}</b></div>
+    ${aa>0?`<div>🛒 Авито: <b style="color:var(--info)">${aa}</b></div>`:''}
     <div>💸 Расходы: <b style="color:var(--accent)">${ee}</b></div>
     <div>📦 Партии: <b style="color:var(--accent)">${bb}</b></div>
     <div style="margin-top:4px;color:var(--muted);font-size:10px">${lastDate}</div>`;
