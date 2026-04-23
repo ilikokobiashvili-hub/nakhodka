@@ -480,6 +480,10 @@ function render(){
   const s=cfg();
   document.getElementById('sb-sub').textContent=s.storeName||'Розница · Секонд-хенд';
   updateSbStats();
+  // Initialize analysis charts directly (avoids execScripts timing issues)
+  if(page==='analysis'&&_anChartData){
+    requestAnimationFrame(()=>requestAnimationFrame(renderAnCharts));
+  }
 }
 
 // ─── DASHBOARD ───
@@ -1348,6 +1352,7 @@ function rCash(){
   // Collect all unique dates: sales, expenses, AND each individual batch payment date
   const allD=new Set([
     ...sales().map(x=>x.date),
+    ...avitoSales().map(x=>x.date),
     ...exps().map(x=>x.date),
     ...batches().flatMap(x=>getBatchPayments(x).map(p=>p.date||x.date))
   ]);
@@ -1355,6 +1360,7 @@ function rCash(){
   let c=s.cashBalance||0,b=s.beznalBalance||0;
   const rows=dates.map(d=>{
     const ds=sales().filter(x=>x.date===d);
+    const av=avitoSales().filter(x=>x.date===d);
     // Only business-funded expenses affect cash
     const de=exps().filter(x=>x.date===d&&x.category!=='Товар/Палеты'&&x.category!=='Доставка'&&x.fundSource!=='founder');
     // Collect all business batch payments for this date (across all batches, by payment date)
@@ -1362,9 +1368,10 @@ function rCash(){
     batches().forEach(x=>getBatchPayments(x).forEach(p=>{
       if((p.date||x.date)===d&&p.source!=='founder')bPays.push(p);
     }));
-    const inc=(ds.reduce((a,x)=>a+(x.nal||0),0));
+    // Shop nal + Avito nal
+    const inc=(ds.reduce((a,x)=>a+(x.nal||0),0))+av.filter(x=>x.payType==='nal').reduce((a,x)=>a+(x.total||0),0);
     // Beznal: deduct acquiring commission — real amount that hits bank account
-    const inbGross=(ds.reduce((a,x)=>a+(x.beznal||0),0));
+    const inbGross=(ds.reduce((a,x)=>a+(x.beznal||0),0))+av.filter(x=>x.payType==='beznal').reduce((a,x)=>a+(x.total||0),0);
     const inbAcq=Math.round(inbGross*acqRate);
     const inb=inbGross-inbAcq;
     const outc=de.reduce((a,x)=>a+(x.nal||0),0)+bPays.filter(p=>p.type!=='безнал').reduce((a,p)=>a+(p.amount||0),0);
@@ -1465,6 +1472,7 @@ let _anTabs=0;
 let _anCharts={};
 let _anFrom='';
 let _anTo='';
+let _anChartData=null;
 function anTab(i){_anTabs=i;render();}
 function anSetPeriod(f,t){_anFrom=f;_anTo=t;_anTabs=0;render();}
 
@@ -1506,8 +1514,8 @@ function rAnalysis(){
   if(allSales.length===0)return`<div class="page-hdr"><div><div class="page-title">🧠 Финансовый анализ</div><div class="page-sub">Выбери другой период</div></div></div>${anDateBar(minDate,maxDate)}<div class="empty" style="padding:60px">За выбранный период продаж нет.</div>`;
 
   // ── Metrics ──
-  const totalNal=allSales.reduce((a,x)=>a+(x.nal||0),0);
-  const totalBeznal=allSales.reduce((a,x)=>a+(x.beznal||0),0);
+  const totalNal=allSales.reduce((a,x)=>a+(x.nal||0),0)+avitoSales().filter(x=>x.date>=_anFrom&&x.date<=_anTo&&x.payType==='nal').reduce((a,x)=>a+(x.total||0),0);
+  const totalBeznal=allSales.reduce((a,x)=>a+(x.beznal||0),0)+avitoSales().filter(x=>x.date>=_anFrom&&x.date<=_anTo&&x.payType==='beznal').reduce((a,x)=>a+(x.total||0),0);
   const totalRev=totalNal+totalBeznal;
   const totalAcq=totalBeznal*acqRate;
   const totalRevReal=totalNal+totalBeznal*(1-acqRate);
@@ -1736,7 +1744,8 @@ function rAnalysis(){
   </div>`;
 
   const tabs=[tab0,tab1,tab2,tab3];
-  const chartData=JSON.stringify({dayLabels,dayNal,dayBzn,avgRevLine,catChartLabels,catChartData,marginLabels,marginData,expKeys,expVals,projMonths,projRev,projNet});
+  // Store chart data globally so renderAnCharts() can read it after DOM update
+  _anChartData={dayLabels,dayNal,dayBzn,avgRevLine,catChartLabels,catChartData,marginLabels,marginData,expKeys,expVals,projMonths,projRev,projNet};
 
   return`
 <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px;flex-wrap:wrap;gap:10px">
@@ -1759,23 +1768,50 @@ ${anDateBar(minDate,maxDate)}
   <button style="${tabStyle(3)}" onclick="anTab(3)">⚠️ Риски</button>
 </div>
 
-${tabs[_anTabs]}
+${tabs[_anTabs]}`;
+}
 
-<script>
-(function(){
+// ── Global chart renderer — called from render() via requestAnimationFrame ──
+function renderAnCharts(){
+  const d=_anChartData;
+  if(!d)return;
+  if(typeof Chart==='undefined'){
+    // Chart.js not yet loaded — retry
+    setTimeout(renderAnCharts,150);
+    return;
+  }
   const C=['#6366f1','#22c55e','#f97316','#eab308','#ef4444','#ec4899','#14b8a6','#a855f7','#fb923c'];
-  const d=${chartData};
-  function mk(id,cfg){const el=document.getElementById(id);if(!el)return;const o=Chart.getChart(el);if(o)o.destroy();return new Chart(el.getContext('2d'),cfg);}
+  function mk(id,cfg){
+    const el=document.getElementById(id);
+    if(!el)return;
+    try{const o=Chart.getChart(el);if(o)o.destroy();}catch(e){}
+    try{return new Chart(el.getContext('2d'),cfg);}catch(e){console.error('Chart error '+id,e);}
+  }
   const sc=(extra={})=>({responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{color:'#888',font:{size:10}}},...(extra.plugins||{})},scales:{x:{ticks:{color:'#666',font:{size:10}},grid:{color:'rgba(255,255,255,.04)'}},...(extra.scales||{})},...extra});
-  setTimeout(()=>{
-    if(document.getElementById('an-rev-chart')) mk('an-rev-chart',{type:'bar',data:{labels:d.dayLabels,datasets:[{label:'НАЛ',data:d.dayNal,backgroundColor:'rgba(34,197,94,.5)',borderRadius:3,stack:'a'},{label:'БЕЗНАЛ',data:d.dayBzn,backgroundColor:'rgba(249,115,22,.65)',borderRadius:3,stack:'a'},{label:'Среднее',data:d.avgRevLine,type:'line',borderColor:'#eab308',borderWidth:1.5,pointRadius:0,borderDash:[4,4]}]},options:sc({scales:{x:{ticks:{color:'#666',font:{size:10}},grid:{color:'rgba(255,255,255,.04)'}},y:{ticks:{color:'#666',font:{size:10},callback:v=>(v/1000)+'к'},grid:{color:'rgba(255,255,255,.04)'}}}})}));
-    if(document.getElementById('an-cat-chart')) mk('an-cat-chart',{type:'doughnut',data:{labels:d.catChartLabels,datasets:[{data:d.catChartData,backgroundColor:C,borderWidth:0}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'right',labels:{color:'#888',font:{size:10},boxWidth:10}}}}});
-    if(document.getElementById('an-margin-chart')) mk('an-margin-chart',{type:'bar',data:{labels:d.marginLabels,datasets:[{data:d.marginData,backgroundColor:d.marginData.map(v=>v>1000?'rgba(34,197,94,.8)':v>500?'rgba(249,115,22,.7)':'rgba(99,102,241,.6)'),borderRadius:5}]},options:sc({plugins:{legend:{display:false}},scales:{x:{ticks:{color:'#666',font:{size:11}},grid:{display:false}},y:{ticks:{color:'#666',font:{size:10}},grid:{color:'rgba(255,255,255,.04)'}}}})}));
-    if(document.getElementById('an-exp-chart')) mk('an-exp-chart',{type:'doughnut',data:{labels:d.expKeys,datasets:[{data:d.expVals,backgroundColor:C,borderWidth:0}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'right',labels:{color:'#888',font:{size:10},boxWidth:10}}}}});
-    if(document.getElementById('an-proj-chart')) mk('an-proj-chart',{type:'bar',data:{labels:d.projMonths,datasets:[{label:'Выручка',data:d.projRev,backgroundColor:'rgba(249,115,22,.35)',borderRadius:4,yAxisID:'y1',order:2},{label:'Чист. прибыль',data:d.projNet,backgroundColor:d.projNet.map(v=>v>=0?'rgba(34,197,94,.75)':'rgba(239,68,68,.7)'),borderRadius:4,yAxisID:'y2',order:1}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{color:'#888',font:{size:11}}}},scales:{x:{ticks:{color:'#666',font:{size:10}},grid:{color:'rgba(255,255,255,.04)'}},y1:{type:'linear',position:'left',ticks:{color:'#f97316',font:{size:9},callback:v=>(v/1000)+'к'},grid:{color:'rgba(255,255,255,.04)'}},y2:{type:'linear',position:'right',ticks:{color:'#22c55e',font:{size:9},callback:v=>(v/1000)+'к'},grid:{display:false}}}}}));
-  },80);
-})();
-<\/script>`;
+
+  // Выручка по дням
+  if(document.getElementById('an-rev-chart')) mk('an-rev-chart',{type:'bar',data:{labels:d.dayLabels,datasets:[{label:'НАЛ',data:d.dayNal,backgroundColor:'rgba(34,197,94,.5)',borderRadius:3,stack:'a'},{label:'БЕЗНАЛ',data:d.dayBzn,backgroundColor:'rgba(249,115,22,.65)',borderRadius:3,stack:'a'},{label:'Среднее',data:d.avgRevLine,type:'line',borderColor:'#eab308',borderWidth:1.5,pointRadius:0,borderDash:[4,4]}]},options:sc({scales:{x:{ticks:{color:'#666',font:{size:10}},grid:{color:'rgba(255,255,255,.04)'}},y:{ticks:{color:'#666',font:{size:10},callback:v=>(v/1000)+'к'},grid:{color:'rgba(255,255,255,.04)'}}}})});
+  // Выручка по категориям
+  const catEl=document.getElementById('an-cat-chart');
+  if(catEl){
+    if(d.catChartData.length>0) mk('an-cat-chart',{type:'doughnut',data:{labels:d.catChartLabels,datasets:[{data:d.catChartData,backgroundColor:C,borderWidth:0}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'right',labels:{color:'#888',font:{size:10},boxWidth:10}}}}});
+    else catEl.parentElement.innerHTML='<div style="text-align:center;padding:40px;color:var(--muted);font-size:12px">Добавь данные по категориям<br>в ценовые уровни продаж</div>';
+  }
+  // Прибыль с 1 вещи
+  const mgEl=document.getElementById('an-margin-chart');
+  if(mgEl){
+    const hasMargin=d.marginData.some(v=>v>0);
+    if(hasMargin) mk('an-margin-chart',{type:'bar',data:{labels:d.marginLabels,datasets:[{data:d.marginData,backgroundColor:d.marginData.map(v=>v>1000?'rgba(34,197,94,.8)':v>500?'rgba(249,115,22,.7)':'rgba(99,102,241,.6)'),borderRadius:5}]},options:sc({plugins:{legend:{display:false}},scales:{x:{ticks:{color:'#666',font:{size:11}},grid:{display:false}},y:{ticks:{color:'#666',font:{size:10}},grid:{color:'rgba(255,255,255,.04)'}}}})});
+    else mgEl.parentElement.innerHTML='<div style="text-align:center;padding:40px;color:var(--muted);font-size:12px">Добавь разбивку COGS<br>в партиях для расчёта маржи</div>';
+  }
+  // Расходы по категориям
+  const expEl=document.getElementById('an-exp-chart');
+  if(expEl){
+    if(d.expVals.length>0) mk('an-exp-chart',{type:'doughnut',data:{labels:d.expKeys,datasets:[{data:d.expVals,backgroundColor:C,borderWidth:0}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'right',labels:{color:'#888',font:{size:10},boxWidth:10}}}}});
+    else expEl.parentElement.innerHTML='<div style="text-align:center;padding:40px;color:var(--muted);font-size:12px">Нет операционных расходов<br>за выбранный период</div>';
+  }
+  // Прогноз
+  if(document.getElementById('an-proj-chart')) mk('an-proj-chart',{type:'bar',data:{labels:d.projMonths,datasets:[{label:'Выручка',data:d.projRev,backgroundColor:'rgba(249,115,22,.35)',borderRadius:4,yAxisID:'y1',order:2},{label:'Чист. прибыль',data:d.projNet,backgroundColor:d.projNet.map(v=>v>=0?'rgba(34,197,94,.75)':'rgba(239,68,68,.7)'),borderRadius:4,yAxisID:'y2',order:1}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{color:'#888',font:{size:11}}}},scales:{x:{ticks:{color:'#666',font:{size:10}},grid:{color:'rgba(255,255,255,.04)'}},y1:{type:'linear',position:'left',ticks:{color:'#f97316',font:{size:9},callback:v=>(v/1000)+'к'},grid:{color:'rgba(255,255,255,.04)'}},y2:{type:'linear',position:'right',ticks:{color:'#22c55e',font:{size:9},callback:v=>(v/1000)+'к'},grid:{display:false}}}}});
 }
 
 function rAudit(){
@@ -1814,6 +1850,7 @@ function rAudit(){
   let manNal=s.cashBalance||0, manBzn=s.beznalBalance||0;
   (s.founderInjections||[]).forEach(x=>{if(x.type==='nal')manNal+=x.amount||0;else manBzn+=x.amount||0;});
   ss.forEach(x=>{manNal+=x.nal||0;manBzn+=(x.beznal||0)*(1-acqRate);});
+  avitoSales().forEach(x=>{if(x.payType==='nal')manNal+=x.total||0;else manBzn+=(x.total||0)*(1-acqRate);});
   ee.filter(x=>x.category!=='Товар/Палеты'&&x.category!=='Доставка'&&x.fundSource!=='founder').forEach(x=>{manNal-=x.nal||0;manBzn-=x.beznal||0;});
   bb.forEach(x=>{getBatchPayments(x).forEach(p=>{if(p.source==='founder')return;if(p.type==='безнал')manBzn-=p.amount||0;else manNal-=p.amount||0;});});
   const nalDiff=Math.abs(bal.c-manNal), bznDiff=Math.abs(bal.b-manBzn);
@@ -1870,7 +1907,7 @@ function rAudit(){
 
   // ── 8. P&L SANITY CHECK (uses SOLD items COGS, not total batch cost) ──
   if(ss.length>0){
-    const totalRev=ss.reduce((a,x)=>a+(x.nal||0)+(x.beznal||0),0);
+    const totalRev=ss.reduce((a,x)=>a+(x.nal||0)+(x.beznal||0),0)+avitoSales().filter(x=>x.date>=ss[0]?.date&&x.date<=ss[ss.length-1]?.date).reduce((a,x)=>a+(x.total||0),0);
     const totalBznSales=ss.reduce((a,x)=>a+(x.beznal||0),0);
     const totalBizExp=ee.filter(x=>x.fundSource!=='founder'&&x.category!=='Товар/Палеты'&&x.category!=='Доставка').reduce((a,x)=>a+(x.nal||0)+(x.beznal||0),0);
     // COGS only of SOLD items via Method 2
@@ -1895,9 +1932,9 @@ function rAudit(){
 
     // ── FORMULA CROSS-CHECK: calcBal vs manual sum ──
     const balFromCalc=calcBal();
-    const manualNal=(s.cashBalance||0)+ss.reduce((a,x)=>a+(x.nal||0),0)-ee.filter(x=>x.fundSource!=='founder'&&x.category!=='Товар/Палеты'&&x.category!=='Доставка').reduce((a,x)=>a+(x.nal||0),0)-bb.flatMap(x=>getBatchPayments(x)).filter(p=>p.source!=='founder'&&p.type!=='безнал').reduce((a,p)=>a+(p.amount||0),0);
+    const manualNal=(s.cashBalance||0)+ss.reduce((a,x)=>a+(x.nal||0),0)+avitoSales().filter(x=>x.payType==='nal').reduce((a,x)=>a+(x.total||0),0)-ee.filter(x=>x.fundSource!=='founder'&&x.category!=='Товар/Палеты'&&x.category!=='Доставка').reduce((a,x)=>a+(x.nal||0),0)-bb.flatMap(x=>getBatchPayments(x)).filter(p=>p.source!=='founder'&&p.type!=='безнал').reduce((a,p)=>a+(p.amount||0),0);
     const acqR=s.acquiringRate!=null?s.acquiringRate:0.0195;
-    const manualBzn=(s.beznalBalance||0)+ss.reduce((a,x)=>a+(x.beznal||0)*(1-acqR),0)-ee.filter(x=>x.fundSource!=='founder'&&x.category!=='Товар/Палеты'&&x.category!=='Доставка').reduce((a,x)=>a+(x.beznal||0),0)-bb.flatMap(x=>getBatchPayments(x)).filter(p=>p.source!=='founder'&&p.type==='безнал').reduce((a,p)=>a+(p.amount||0),0);
+    const manualBzn=(s.beznalBalance||0)+ss.reduce((a,x)=>a+(x.beznal||0)*(1-acqR),0)+avitoSales().filter(x=>x.payType==='beznal').reduce((a,x)=>a+(x.total||0)*(1-acqR),0)-ee.filter(x=>x.fundSource!=='founder'&&x.category!=='Товар/Палеты'&&x.category!=='Доставка').reduce((a,x)=>a+(x.beznal||0),0)-bb.flatMap(x=>getBatchPayments(x)).filter(p=>p.source!=='founder'&&p.type==='безнал').reduce((a,p)=>a+(p.amount||0),0);
     const nalDrift=Math.abs(balFromCalc.c-manualNal), bznDrift=Math.abs(balFromCalc.b-manualBzn);
     if(nalDrift<1&&bznDrift<1) ok('Кросс-чек баланса: calcBal() = ручной пересчёт ✓',`НАЛ ${fr(balFromCalc.c)} · БЕЗНАЛ ${fr(balFromCalc.b)}`);
     else err(`Кросс-чек баланса: расхождение ${fr(nalDrift+bznDrift)}`,`calcBal НАЛ ${fr(balFromCalc.c)} vs ручной ${fr(manualNal)} · calcBal БЕЗНАЛ ${fr(balFromCalc.b)} vs ручной ${fr(manualBzn)}`);
