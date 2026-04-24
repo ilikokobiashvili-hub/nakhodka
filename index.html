@@ -480,10 +480,6 @@ function render(){
   const s=cfg();
   document.getElementById('sb-sub').textContent=s.storeName||'Розница · Секонд-хенд';
   updateSbStats();
-  // Initialize analysis charts directly (avoids execScripts timing issues)
-  if(page==='analysis'&&_anChartData){
-    requestAnimationFrame(()=>requestAnimationFrame(renderAnCharts));
-  }
 }
 
 // ─── DASHBOARD ───
@@ -1352,7 +1348,6 @@ function rCash(){
   // Collect all unique dates: sales, expenses, AND each individual batch payment date
   const allD=new Set([
     ...sales().map(x=>x.date),
-    ...avitoSales().map(x=>x.date),
     ...exps().map(x=>x.date),
     ...batches().flatMap(x=>getBatchPayments(x).map(p=>p.date||x.date))
   ]);
@@ -1360,7 +1355,6 @@ function rCash(){
   let c=s.cashBalance||0,b=s.beznalBalance||0;
   const rows=dates.map(d=>{
     const ds=sales().filter(x=>x.date===d);
-    const av=avitoSales().filter(x=>x.date===d);
     // Only business-funded expenses affect cash
     const de=exps().filter(x=>x.date===d&&x.category!=='Товар/Палеты'&&x.category!=='Доставка'&&x.fundSource!=='founder');
     // Collect all business batch payments for this date (across all batches, by payment date)
@@ -1368,10 +1362,9 @@ function rCash(){
     batches().forEach(x=>getBatchPayments(x).forEach(p=>{
       if((p.date||x.date)===d&&p.source!=='founder')bPays.push(p);
     }));
-    // Shop nal + Avito nal
-    const inc=(ds.reduce((a,x)=>a+(x.nal||0),0))+av.filter(x=>x.payType==='nal').reduce((a,x)=>a+(x.total||0),0);
+    const inc=(ds.reduce((a,x)=>a+(x.nal||0),0));
     // Beznal: deduct acquiring commission — real amount that hits bank account
-    const inbGross=(ds.reduce((a,x)=>a+(x.beznal||0),0))+av.filter(x=>x.payType==='beznal').reduce((a,x)=>a+(x.total||0),0);
+    const inbGross=(ds.reduce((a,x)=>a+(x.beznal||0),0));
     const inbAcq=Math.round(inbGross*acqRate);
     const inb=inbGross-inbAcq;
     const outc=de.reduce((a,x)=>a+(x.nal||0),0)+bPays.filter(p=>p.type!=='безнал').reduce((a,p)=>a+(p.amount||0),0);
@@ -1472,7 +1465,6 @@ let _anTabs=0;
 let _anCharts={};
 let _anFrom='';
 let _anTo='';
-let _anChartData=null;
 function anTab(i){_anTabs=i;render();}
 function anSetPeriod(f,t){_anFrom=f;_anTo=t;_anTabs=0;render();}
 
@@ -1514,8 +1506,8 @@ function rAnalysis(){
   if(allSales.length===0)return`<div class="page-hdr"><div><div class="page-title">🧠 Финансовый анализ</div><div class="page-sub">Выбери другой период</div></div></div>${anDateBar(minDate,maxDate)}<div class="empty" style="padding:60px">За выбранный период продаж нет.</div>`;
 
   // ── Metrics ──
-  const totalNal=allSales.reduce((a,x)=>a+(x.nal||0),0)+avitoSales().filter(x=>x.date>=_anFrom&&x.date<=_anTo&&x.payType==='nal').reduce((a,x)=>a+(x.total||0),0);
-  const totalBeznal=allSales.reduce((a,x)=>a+(x.beznal||0),0)+avitoSales().filter(x=>x.date>=_anFrom&&x.date<=_anTo&&x.payType==='beznal').reduce((a,x)=>a+(x.total||0),0);
+  const totalNal=allSales.reduce((a,x)=>a+(x.nal||0),0);
+  const totalBeznal=allSales.reduce((a,x)=>a+(x.beznal||0),0);
   const totalRev=totalNal+totalBeznal;
   const totalAcq=totalBeznal*acqRate;
   const totalRevReal=totalNal+totalBeznal*(1-acqRate);
@@ -1744,8 +1736,7 @@ function rAnalysis(){
   </div>`;
 
   const tabs=[tab0,tab1,tab2,tab3];
-  // Store chart data globally so renderAnCharts() can read it after DOM update
-  _anChartData={dayLabels,dayNal,dayBzn,avgRevLine,catChartLabels,catChartData,marginLabels,marginData,expKeys,expVals,projMonths,projRev,projNet};
+  const chartData=JSON.stringify({dayLabels,dayNal,dayBzn,avgRevLine,catChartLabels,catChartData,marginLabels,marginData,expKeys,expVals,projMonths,projRev,projNet});
 
   return`
 <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px;flex-wrap:wrap;gap:10px">
@@ -1768,50 +1759,23 @@ ${anDateBar(minDate,maxDate)}
   <button style="${tabStyle(3)}" onclick="anTab(3)">⚠️ Риски</button>
 </div>
 
-${tabs[_anTabs]}`;
-}
+${tabs[_anTabs]}
 
-// ── Global chart renderer — called from render() via requestAnimationFrame ──
-function renderAnCharts(){
-  const d=_anChartData;
-  if(!d)return;
-  if(typeof Chart==='undefined'){
-    // Chart.js not yet loaded — retry
-    setTimeout(renderAnCharts,150);
-    return;
-  }
+<script>
+(function(){
   const C=['#6366f1','#22c55e','#f97316','#eab308','#ef4444','#ec4899','#14b8a6','#a855f7','#fb923c'];
-  function mk(id,cfg){
-    const el=document.getElementById(id);
-    if(!el)return;
-    try{const o=Chart.getChart(el);if(o)o.destroy();}catch(e){}
-    try{return new Chart(el.getContext('2d'),cfg);}catch(e){console.error('Chart error '+id,e);}
-  }
+  const d=${chartData};
+  function mk(id,cfg){const el=document.getElementById(id);if(!el)return;const o=Chart.getChart(el);if(o)o.destroy();return new Chart(el.getContext('2d'),cfg);}
   const sc=(extra={})=>({responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{color:'#888',font:{size:10}}},...(extra.plugins||{})},scales:{x:{ticks:{color:'#666',font:{size:10}},grid:{color:'rgba(255,255,255,.04)'}},...(extra.scales||{})},...extra});
-
-  // Выручка по дням
-  if(document.getElementById('an-rev-chart')) mk('an-rev-chart',{type:'bar',data:{labels:d.dayLabels,datasets:[{label:'НАЛ',data:d.dayNal,backgroundColor:'rgba(34,197,94,.5)',borderRadius:3,stack:'a'},{label:'БЕЗНАЛ',data:d.dayBzn,backgroundColor:'rgba(249,115,22,.65)',borderRadius:3,stack:'a'},{label:'Среднее',data:d.avgRevLine,type:'line',borderColor:'#eab308',borderWidth:1.5,pointRadius:0,borderDash:[4,4]}]},options:sc({scales:{x:{ticks:{color:'#666',font:{size:10}},grid:{color:'rgba(255,255,255,.04)'}},y:{ticks:{color:'#666',font:{size:10},callback:v=>(v/1000)+'к'},grid:{color:'rgba(255,255,255,.04)'}}}})});
-  // Выручка по категориям
-  const catEl=document.getElementById('an-cat-chart');
-  if(catEl){
-    if(d.catChartData.length>0) mk('an-cat-chart',{type:'doughnut',data:{labels:d.catChartLabels,datasets:[{data:d.catChartData,backgroundColor:C,borderWidth:0}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'right',labels:{color:'#888',font:{size:10},boxWidth:10}}}}});
-    else catEl.parentElement.innerHTML='<div style="text-align:center;padding:40px;color:var(--muted);font-size:12px">Добавь данные по категориям<br>в ценовые уровни продаж</div>';
-  }
-  // Прибыль с 1 вещи
-  const mgEl=document.getElementById('an-margin-chart');
-  if(mgEl){
-    const hasMargin=d.marginData.some(v=>v>0);
-    if(hasMargin) mk('an-margin-chart',{type:'bar',data:{labels:d.marginLabels,datasets:[{data:d.marginData,backgroundColor:d.marginData.map(v=>v>1000?'rgba(34,197,94,.8)':v>500?'rgba(249,115,22,.7)':'rgba(99,102,241,.6)'),borderRadius:5}]},options:sc({plugins:{legend:{display:false}},scales:{x:{ticks:{color:'#666',font:{size:11}},grid:{display:false}},y:{ticks:{color:'#666',font:{size:10}},grid:{color:'rgba(255,255,255,.04)'}}}})});
-    else mgEl.parentElement.innerHTML='<div style="text-align:center;padding:40px;color:var(--muted);font-size:12px">Добавь разбивку COGS<br>в партиях для расчёта маржи</div>';
-  }
-  // Расходы по категориям
-  const expEl=document.getElementById('an-exp-chart');
-  if(expEl){
-    if(d.expVals.length>0) mk('an-exp-chart',{type:'doughnut',data:{labels:d.expKeys,datasets:[{data:d.expVals,backgroundColor:C,borderWidth:0}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'right',labels:{color:'#888',font:{size:10},boxWidth:10}}}}});
-    else expEl.parentElement.innerHTML='<div style="text-align:center;padding:40px;color:var(--muted);font-size:12px">Нет операционных расходов<br>за выбранный период</div>';
-  }
-  // Прогноз
-  if(document.getElementById('an-proj-chart')) mk('an-proj-chart',{type:'bar',data:{labels:d.projMonths,datasets:[{label:'Выручка',data:d.projRev,backgroundColor:'rgba(249,115,22,.35)',borderRadius:4,yAxisID:'y1',order:2},{label:'Чист. прибыль',data:d.projNet,backgroundColor:d.projNet.map(v=>v>=0?'rgba(34,197,94,.75)':'rgba(239,68,68,.7)'),borderRadius:4,yAxisID:'y2',order:1}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{color:'#888',font:{size:11}}}},scales:{x:{ticks:{color:'#666',font:{size:10}},grid:{color:'rgba(255,255,255,.04)'}},y1:{type:'linear',position:'left',ticks:{color:'#f97316',font:{size:9},callback:v=>(v/1000)+'к'},grid:{color:'rgba(255,255,255,.04)'}},y2:{type:'linear',position:'right',ticks:{color:'#22c55e',font:{size:9},callback:v=>(v/1000)+'к'},grid:{display:false}}}}});
+  setTimeout(()=>{
+    if(document.getElementById('an-rev-chart')) mk('an-rev-chart',{type:'bar',data:{labels:d.dayLabels,datasets:[{label:'НАЛ',data:d.dayNal,backgroundColor:'rgba(34,197,94,.5)',borderRadius:3,stack:'a'},{label:'БЕЗНАЛ',data:d.dayBzn,backgroundColor:'rgba(249,115,22,.65)',borderRadius:3,stack:'a'},{label:'Среднее',data:d.avgRevLine,type:'line',borderColor:'#eab308',borderWidth:1.5,pointRadius:0,borderDash:[4,4]}]},options:sc({scales:{x:{ticks:{color:'#666',font:{size:10}},grid:{color:'rgba(255,255,255,.04)'}},y:{ticks:{color:'#666',font:{size:10},callback:v=>(v/1000)+'к'},grid:{color:'rgba(255,255,255,.04)'}}}})}));
+    if(document.getElementById('an-cat-chart')) mk('an-cat-chart',{type:'doughnut',data:{labels:d.catChartLabels,datasets:[{data:d.catChartData,backgroundColor:C,borderWidth:0}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'right',labels:{color:'#888',font:{size:10},boxWidth:10}}}}});
+    if(document.getElementById('an-margin-chart')) mk('an-margin-chart',{type:'bar',data:{labels:d.marginLabels,datasets:[{data:d.marginData,backgroundColor:d.marginData.map(v=>v>1000?'rgba(34,197,94,.8)':v>500?'rgba(249,115,22,.7)':'rgba(99,102,241,.6)'),borderRadius:5}]},options:sc({plugins:{legend:{display:false}},scales:{x:{ticks:{color:'#666',font:{size:11}},grid:{display:false}},y:{ticks:{color:'#666',font:{size:10}},grid:{color:'rgba(255,255,255,.04)'}}}})}));
+    if(document.getElementById('an-exp-chart')) mk('an-exp-chart',{type:'doughnut',data:{labels:d.expKeys,datasets:[{data:d.expVals,backgroundColor:C,borderWidth:0}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'right',labels:{color:'#888',font:{size:10},boxWidth:10}}}}});
+    if(document.getElementById('an-proj-chart')) mk('an-proj-chart',{type:'bar',data:{labels:d.projMonths,datasets:[{label:'Выручка',data:d.projRev,backgroundColor:'rgba(249,115,22,.35)',borderRadius:4,yAxisID:'y1',order:2},{label:'Чист. прибыль',data:d.projNet,backgroundColor:d.projNet.map(v=>v>=0?'rgba(34,197,94,.75)':'rgba(239,68,68,.7)'),borderRadius:4,yAxisID:'y2',order:1}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{color:'#888',font:{size:11}}}},scales:{x:{ticks:{color:'#666',font:{size:10}},grid:{color:'rgba(255,255,255,.04)'}},y1:{type:'linear',position:'left',ticks:{color:'#f97316',font:{size:9},callback:v=>(v/1000)+'к'},grid:{color:'rgba(255,255,255,.04)'}},y2:{type:'linear',position:'right',ticks:{color:'#22c55e',font:{size:9},callback:v=>(v/1000)+'к'},grid:{display:false}}}}}));
+  },80);
+})();
+<\/script>`;
 }
 
 function rAudit(){
@@ -1850,7 +1814,6 @@ function rAudit(){
   let manNal=s.cashBalance||0, manBzn=s.beznalBalance||0;
   (s.founderInjections||[]).forEach(x=>{if(x.type==='nal')manNal+=x.amount||0;else manBzn+=x.amount||0;});
   ss.forEach(x=>{manNal+=x.nal||0;manBzn+=(x.beznal||0)*(1-acqRate);});
-  avitoSales().forEach(x=>{if(x.payType==='nal')manNal+=x.total||0;else manBzn+=(x.total||0)*(1-acqRate);});
   ee.filter(x=>x.category!=='Товар/Палеты'&&x.category!=='Доставка'&&x.fundSource!=='founder').forEach(x=>{manNal-=x.nal||0;manBzn-=x.beznal||0;});
   bb.forEach(x=>{getBatchPayments(x).forEach(p=>{if(p.source==='founder')return;if(p.type==='безнал')manBzn-=p.amount||0;else manNal-=p.amount||0;});});
   const nalDiff=Math.abs(bal.c-manNal), bznDiff=Math.abs(bal.b-manBzn);
@@ -1907,7 +1870,7 @@ function rAudit(){
 
   // ── 8. P&L SANITY CHECK (uses SOLD items COGS, not total batch cost) ──
   if(ss.length>0){
-    const totalRev=ss.reduce((a,x)=>a+(x.nal||0)+(x.beznal||0),0)+avitoSales().filter(x=>x.date>=ss[0]?.date&&x.date<=ss[ss.length-1]?.date).reduce((a,x)=>a+(x.total||0),0);
+    const totalRev=ss.reduce((a,x)=>a+(x.nal||0)+(x.beznal||0),0);
     const totalBznSales=ss.reduce((a,x)=>a+(x.beznal||0),0);
     const totalBizExp=ee.filter(x=>x.fundSource!=='founder'&&x.category!=='Товар/Палеты'&&x.category!=='Доставка').reduce((a,x)=>a+(x.nal||0)+(x.beznal||0),0);
     // COGS only of SOLD items via Method 2
@@ -1932,9 +1895,9 @@ function rAudit(){
 
     // ── FORMULA CROSS-CHECK: calcBal vs manual sum ──
     const balFromCalc=calcBal();
-    const manualNal=(s.cashBalance||0)+ss.reduce((a,x)=>a+(x.nal||0),0)+avitoSales().filter(x=>x.payType==='nal').reduce((a,x)=>a+(x.total||0),0)-ee.filter(x=>x.fundSource!=='founder'&&x.category!=='Товар/Палеты'&&x.category!=='Доставка').reduce((a,x)=>a+(x.nal||0),0)-bb.flatMap(x=>getBatchPayments(x)).filter(p=>p.source!=='founder'&&p.type!=='безнал').reduce((a,p)=>a+(p.amount||0),0);
+    const manualNal=(s.cashBalance||0)+ss.reduce((a,x)=>a+(x.nal||0),0)-ee.filter(x=>x.fundSource!=='founder'&&x.category!=='Товар/Палеты'&&x.category!=='Доставка').reduce((a,x)=>a+(x.nal||0),0)-bb.flatMap(x=>getBatchPayments(x)).filter(p=>p.source!=='founder'&&p.type!=='безнал').reduce((a,p)=>a+(p.amount||0),0);
     const acqR=s.acquiringRate!=null?s.acquiringRate:0.0195;
-    const manualBzn=(s.beznalBalance||0)+ss.reduce((a,x)=>a+(x.beznal||0)*(1-acqR),0)+avitoSales().filter(x=>x.payType==='beznal').reduce((a,x)=>a+(x.total||0)*(1-acqR),0)-ee.filter(x=>x.fundSource!=='founder'&&x.category!=='Товар/Палеты'&&x.category!=='Доставка').reduce((a,x)=>a+(x.beznal||0),0)-bb.flatMap(x=>getBatchPayments(x)).filter(p=>p.source!=='founder'&&p.type==='безнал').reduce((a,p)=>a+(p.amount||0),0);
+    const manualBzn=(s.beznalBalance||0)+ss.reduce((a,x)=>a+(x.beznal||0)*(1-acqR),0)-ee.filter(x=>x.fundSource!=='founder'&&x.category!=='Товар/Палеты'&&x.category!=='Доставка').reduce((a,x)=>a+(x.beznal||0),0)-bb.flatMap(x=>getBatchPayments(x)).filter(p=>p.source!=='founder'&&p.type==='безнал').reduce((a,p)=>a+(p.amount||0),0);
     const nalDrift=Math.abs(balFromCalc.c-manualNal), bznDrift=Math.abs(balFromCalc.b-manualBzn);
     if(nalDrift<1&&bznDrift<1) ok('Кросс-чек баланса: calcBal() = ручной пересчёт ✓',`НАЛ ${fr(balFromCalc.c)} · БЕЗНАЛ ${fr(balFromCalc.b)}`);
     else err(`Кросс-чек баланса: расхождение ${fr(nalDrift+bznDrift)}`,`calcBal НАЛ ${fr(balFromCalc.c)} vs ручной ${fr(manualNal)} · calcBal БЕЗНАЛ ${fr(balFromCalc.b)} vs ручной ${fr(manualBzn)}`);
@@ -2717,23 +2680,41 @@ function svInvCSV(){
 function oEvotor(){showM(`
 <div class="m-hdr"><h2>📄 Загрузить из Эвотора</h2><button class="m-x" onclick="hideM()">×</button></div>
 
-<div style="margin-bottom:16px;padding:12px 14px;background:var(--surface2);border-radius:8px;font-size:12px;color:var(--muted);line-height:1.7">
-  <b style="color:var(--text)">Как выгрузить файл из Эвотора:</b><br>
-  Эвотор → Отчёты → <b style="color:var(--success)">Сводный отчёт по продажам</b> → выбери период → Выгрузить CSV
+<div style="margin-bottom:14px;padding:11px 14px;background:var(--surface2);border-radius:8px;font-size:12px;color:var(--muted);line-height:1.7">
+  <b style="color:var(--text)">Загрузи один или оба файла сразу:</b><br>
+  <span style="color:var(--success)">①</span> <b style="color:var(--text)">Отчёт по продажам</b> — Эвотор → Отчёты → Продажи → Выгрузить CSV <span style="color:var(--muted)">(даёт категории)</span><br>
+  <span style="color:var(--info)">②</span> <b style="color:var(--text)">Сводный отчёт</b> — Эвотор → Отчёты → Сводный → Выгрузить CSV <span style="color:var(--muted)">(даёт нал/безнал)</span>
 </div>
 
-<div id="ev-drop" onclick="document.getElementById('ev-file').click()"
-  style="border:2px dashed var(--border);border-radius:12px;padding:36px;text-align:center;cursor:pointer;transition:border-color .2s"
-  onmouseover="this.style.borderColor='var(--success)'" onmouseout="this.style.borderColor='var(--border)'">
-  <div style="font-size:32px;margin-bottom:10px">📂</div>
-  <div style="font-weight:600;margin-bottom:4px">Нажмите чтобы выбрать CSV файл</div>
-  <div style="font-size:11px;color:var(--muted)">Сводный отчёт по продажам.csv</div>
-  <input type="file" id="ev-file" accept=".csv,text/csv" style="display:none" onchange="parseEvotorCSV(this)">
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:4px">
+
+  <div>
+    <div style="font-size:10px;font-weight:700;color:var(--success);letter-spacing:1px;text-transform:uppercase;margin-bottom:6px">① Отчёт по продажам</div>
+    <div id="ev-drop1" onclick="document.getElementById('ev-file1').click()"
+      style="border:2px dashed var(--border);border-radius:10px;padding:18px 10px;text-align:center;cursor:pointer;transition:all .2s;min-height:90px;display:flex;flex-direction:column;align-items:center;justify-content:center"
+      onmouseover="this.style.borderColor='var(--success)'" onmouseout="evDropOut(1)">
+      <div style="font-size:22px;margin-bottom:6px">📋</div>
+      <div id="ev-name1" style="font-size:11px;color:var(--muted)">Нажмите для выбора</div>
+    </div>
+    <input type="file" id="ev-file1" accept=".csv,text/csv" style="display:none" onchange="evLoadFile(1,this)">
+  </div>
+
+  <div>
+    <div style="font-size:10px;font-weight:700;color:var(--info);letter-spacing:1px;text-transform:uppercase;margin-bottom:6px">② Сводный отчёт</div>
+    <div id="ev-drop2" onclick="document.getElementById('ev-file2').click()"
+      style="border:2px dashed var(--border);border-radius:10px;padding:18px 10px;text-align:center;cursor:pointer;transition:all .2s;min-height:90px;display:flex;flex-direction:column;align-items:center;justify-content:center"
+      onmouseover="this.style.borderColor='var(--info)'" onmouseout="evDropOut(2)">
+      <div style="font-size:22px;margin-bottom:6px">📊</div>
+      <div id="ev-name2" style="font-size:11px;color:var(--muted)">Нажмите для выбора</div>
+    </div>
+    <input type="file" id="ev-file2" accept=".csv,text/csv" style="display:none" onchange="evLoadFile(2,this)">
+  </div>
+
 </div>
 
-<div id="ev-result" style="display:none;margin-top:16px">
-  <div style="font-weight:700;font-size:12px;color:var(--success);margin-bottom:10px;text-transform:uppercase;letter-spacing:1px">✅ Файл распознан</div>
-  <div id="ev-preview-table" style="max-height:280px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;font-size:12px"></div>
+<div id="ev-result" style="display:none;margin-top:14px">
+  <div id="ev-status-line" style="font-weight:700;font-size:12px;color:var(--success);margin-bottom:10px;text-transform:uppercase;letter-spacing:1px">✅ Файл распознан</div>
+  <div id="ev-preview-table" style="max-height:260px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;font-size:12px"></div>
   <div id="ev-stats" style="margin-top:10px;font-size:12px;color:var(--muted)"></div>
 </div>
 
@@ -2747,7 +2728,14 @@ function oEvotor(){showM(`
   <button class="btn btn-p" id="ev-save-btn" style="display:none" onclick="svEvotorCSV()">✅ Импортировать в базу</button>
 </div>`)}
 
+function evDropOut(n){
+  const el=document.getElementById('ev-drop'+n);
+  if(el)el.style.borderColor=(window['_evParsed'+n]?'var(--success)':'var(--border)');
+}
+
 let _evRows=[];
+let _evParsed1=null; // detail report (categories)
+let _evParsed2=null; // summary report (nal/beznal)
 
 function parseNum(s){if(!s)return 0;return parseFloat(String(s).replace(/\s/g,'').replace(',','.'))||0;}
 function parseDate(s){
@@ -2772,167 +2760,253 @@ function parseCsvLine(line){
   return cols.map(c=>c.replace(/^"|"$/g,'').trim());
 }
 
-function parseEvotorCSV(input){
+// ── Load one of the two slots ──
+function evLoadFile(slot, input){
   const file=input.files[0];if(!file)return;
-  const tryParse=(text)=>{
-    try{
-      const lines=text.split('\n').map(l=>l.trim()).filter(l=>l.length>2);
+  const nameEl=document.getElementById('ev-name'+slot);
+  const dropEl=document.getElementById('ev-drop'+slot);
 
-      // ── Step 1: find header row ──
-      let headerIdx=-1,headers=[];
-      for(let i=0;i<Math.min(lines.length,15);i++){
-        const cols=parseCsvLine(lines[i]).map(c=>c.toLowerCase());
-        // header must have a date-like column and at least one amount column
-        const hasDate=cols.some(c=>c.includes('дата'));
-        const hasAmt=cols.some(c=>c.includes('сумм')||c.includes('итого')||c.includes('налич')||c.includes('безнал')||c.includes('карт'));
-        if(hasDate&&hasAmt){headerIdx=i;headers=cols;break;}
-      }
-
-      let rows=[];
-
-      if(headerIdx!==-1){
-        // ── Step 2: map column indices ──
-        const ci=(keywords)=>{const idx=headers.findIndex(h=>keywords.some(k=>h.includes(k)));return idx;};
-        const iDate   = ci(['дата']);
-        const iNal    = ci(['наличным','нал.','касс','налич']);
-        const iBeznal = ci(['безналич','карт','эквайр','платёж','безнал']);
-        const iTotal  = ci(['итого','всего','сумм']);
-        const iPayType= ci(['тип оплат','способ оплат','форма оплат','вид оплат']);
-        const iAmt    = ci(['сумма']);
-
-        // ── Step 3: detect format ──
-        // FORMAT A: summary per day — has both nal & beznal columns
-        // FORMAT B: per-transaction — has payment_type + amount columns
-        // FORMAT C: per-transaction with nal/beznal in separate cols per row
-
-        const isFormatA = iDate>=0 && iNal>=0 && iBeznal>=0;
-        const isFormatB = iDate>=0 && iPayType>=0 && (iAmt>=0||iTotal>=0);
-
-        if(isFormatA){
-          // Per-day summary — original format, direct read
-          for(let i=headerIdx+1;i<lines.length;i++){
-            const cols=parseCsvLine(lines[i]);
-            if(!cols[iDate])continue;
-            const date=parseDate(cols[iDate]);if(!date)continue;
-            const nal=parseNum(cols[iNal]);
-            const beznal=parseNum(cols[iBeznal]);
-            const total=iTotal>=0?parseNum(cols[iTotal]):nal+beznal;
-            if(nal===0&&beznal===0&&total===0)continue;
-            // merge same-date rows
-            const ex=rows.find(r=>r.date===date);
-            if(ex){ex.nal+=nal;ex.beznal+=beznal;ex.total+=total||nal+beznal;ex.checks++;}
-            else rows.push({date,nal:Math.round(nal),beznal:Math.round(beznal),total:Math.round(total||nal+beznal),checks:1});
-          }
-        } else if(isFormatB){
-          // Per-transaction with payment type column — aggregate by date+type
-          const amtIdx=iAmt>=0?iAmt:iTotal;
-          for(let i=headerIdx+1;i<lines.length;i++){
-            const cols=parseCsvLine(lines[i]);
-            if(!cols[iDate])continue;
-            const date=parseDate(cols[iDate]);if(!date)continue;
-            const amt=parseNum(cols[amtIdx]);if(amt===0)continue;
-            const pt=(cols[iPayType]||'').toLowerCase();
-            const isNal=pt.includes('нал')||pt.includes('касс');
-            const isBeznal=pt.includes('безнал')||pt.includes('карт')||pt.includes('эквайр');
-            const ex=rows.find(r=>r.date===date);
-            if(ex){
-              if(isNal)ex.nal+=amt; else if(isBeznal)ex.beznal+=amt; else ex.nal+=amt;
-              ex.total+=amt;ex.checks++;
-            } else {
-              const r={date,nal:0,beznal:0,total:Math.round(amt),checks:1};
-              if(isNal)r.nal=Math.round(amt); else if(isBeznal)r.beznal=Math.round(amt); else r.nal=Math.round(amt);
-              rows.push(r);
-            }
-          }
-          rows.forEach(r=>{r.nal=Math.round(r.nal);r.beznal=Math.round(r.beznal);r.total=Math.round(r.total);});
-        } else {
-          // Fallback: try to read all numeric columns and guess
-          rows=parseEvotorFallback(lines,headerIdx,headers);
-        }
-      } else {
-        // No header found — try fallback patterns
-        rows=parseEvotorFallback(lines,-1,[]);
-      }
-
-      if(rows.length===0)throw new Error('Не удалось распознать данные. Убедись что выгружен «Сводный отчёт по продажам» из Эвотора (CSV с разделителями ; или ,).');
-      return rows;
-    }catch(e){throw e;}
+  const tryRead=(text)=>{
+    if(text.charCodeAt(0)===0xFEFF)text=text.slice(1);
+    const parsed=evParseText(text);
+    if(slot===1){
+      window._evParsed1=parsed;
+      if(dropEl){dropEl.style.borderColor='var(--success)';dropEl.style.background='rgba(34,197,94,.05)';}
+      if(nameEl)nameEl.innerHTML=`<span style="color:var(--success)">✅ ${file.name}</span>`;
+    } else {
+      window._evParsed2=parsed;
+      if(dropEl){dropEl.style.borderColor='var(--info)';dropEl.style.background='rgba(59,130,246,.05)';}
+      if(nameEl)nameEl.innerHTML=`<span style="color:var(--info)">✅ ${file.name}</span>`;
+    }
+    evMergeAndPreview();
   };
 
   const reader=new FileReader();
   reader.onload=e=>{
-    try{
-      let text=e.target.result;
-      // detect BOM
-      if(text.charCodeAt(0)===0xFEFF)text=text.slice(1);
-      _evRows=tryParse(text);
-      showEvPreview();
-    }catch(err){
-      document.getElementById('ev-error').style.display='block';
-      document.getElementById('ev-error-msg').textContent=err.message;
-    }
+    try{tryRead(e.target.result);}
+    catch(err){evShowError(err.message);}
   };
   reader.onerror=()=>{
-    // try windows-1251
     const r2=new FileReader();
-    r2.onload=e2=>{
-      try{_evRows=tryParse(e2.target.result);showEvPreview();}
-      catch(err){document.getElementById('ev-error').style.display='block';document.getElementById('ev-error-msg').textContent=err.message;}
-    };
+    r2.onload=e2=>{try{tryRead(e2.target.result);}catch(err){evShowError(err.message);}};
     r2.readAsText(file,'windows-1251');
   };
   reader.readAsText(file,'UTF-8');
 }
 
-function parseEvotorFallback(lines,skip,headers){
-  // Last resort: scan for lines starting with a date pattern
-  const rows=[];
-  for(let i=skip+1;i<lines.length;i++){
-    const cols=parseCsvLine(lines[i]);
-    if(!cols[0])continue;
-    const date=parseDate(cols[0]);if(!date)continue;
-    // find all numeric values in remaining cols
-    const nums=cols.slice(1).map(parseNum).filter(n=>n>0);
-    if(nums.length===0)continue;
-    // heuristic: largest number is likely total/beznal, look for nal column
-    // try cols[1]=nal, cols[2]=beznal, cols[3]=total
-    let nal=0,beznal=0,total=0;
-    if(nums.length>=3){nal=nums[0];beznal=nums[1];total=nums[2];}
-    else if(nums.length===2){nal=nums[0];beznal=0;total=nums[1];}
-    else{total=nums[0];}
-    if(total===0)total=nal+beznal;
-    const ex=rows.find(r=>r.date===date);
-    if(ex){ex.nal+=nal;ex.beznal+=beznal;ex.total+=total;}
-    else rows.push({date,nal:Math.round(nal),beznal:Math.round(beznal),total:Math.round(total),checks:1});
+// ── Parse any Evotor CSV text, return {type, rows} ──
+// type: 'detail' (has categories) | 'summary' (has nal/beznal)
+function evParseText(text){
+  // ── Helpers ──
+  function extractPriceFromName(name){
+    const clean=(name||'').trim();
+    const nums=clean.match(/\d+(?:[.,]\d+)?/g)||[];
+    const cats=priceCats();
+    for(const n of nums){
+      const norm=n.replace(',','.');
+      const parts=norm.split('.');
+      let val;
+      if(parts[1]&&parts[1].length===3){val=parseInt(parts[0]+parts[1]);}
+      else{val=Math.round(parseFloat(norm));}
+      const cat=cats.find(c=>c.price===val);
+      if(cat)return val;
+    }
+    return null;
   }
-  return rows;
+  function matchCatByPrice(price){
+    if(!price)return null;
+    return priceCats().find(c=>c.price===price)||null;
+  }
+
+  const lines=text.split('\n').map(l=>l.trim()).filter(l=>l.length>2);
+
+  // ── Find header row ──
+  let headerIdx=-1,headers=[];
+  for(let i=0;i<Math.min(lines.length,15);i++){
+    const cols=parseCsvLine(lines[i]).map(c=>c.toLowerCase().trim());
+    const hasDate=cols.some(c=>c.includes('дата'));
+    const hasAmt=cols.some(c=>c.includes('сумм')||c.includes('итого')||c.includes('налич')||c.includes('безнал')||c.includes('карт')||c.includes('количество'));
+    if(hasDate&&hasAmt){headerIdx=i;headers=cols;break;}
+  }
+
+  if(headerIdx===-1){
+    // Fallback: scan for date lines
+    const rows=[];
+    for(let i=0;i<lines.length;i++){
+      const cols=parseCsvLine(lines[i]);
+      const date=parseDate(cols[0]||'');if(!date)continue;
+      const nums=cols.slice(1).map(parseNum).filter(n=>n>0);
+      if(nums.length===0)continue;
+      let nal=0,beznal=0,total=0;
+      if(nums.length>=3){nal=nums[0];beznal=nums[1];total=nums[2];}
+      else if(nums.length===2){nal=nums[0];beznal=0;total=nums[1];}
+      else{total=nums[0];}
+      if(total===0)total=nal+beznal;
+      rows.push({date,nal:Math.round(nal),beznal:Math.round(beznal),total:Math.round(total),checks:1});
+    }
+    if(rows.length===0)throw new Error('Не удалось распознать формат CSV. Выгрузи «Отчёт по продажам» или «Сводный отчёт» из Эвотора.');
+    return {type:'summary',rows};
+  }
+
+  const ci=(keywords)=>headers.findIndex(h=>keywords.some(k=>h.includes(k)));
+  const iDate   = ci(['дата']);
+  const iNal    = ci(['наличным','нал.','касс','налич']);
+  const iBeznal = ci(['безналич','карт','эквайр','платёж','безнал']);
+  const iTotal  = ci(['итого за дату','итого','всего']);
+  const iPayType= ci(['тип оплат','способ оплат','форма оплат','вид оплат']);
+  const iAmt    = ci(['сумма']);
+  const iName   = ci(['наименование','товар','название']);
+  const iQty    = ci(['количество','кол']);
+
+  const isFormatDetail = iDate>=0 && iName>=0 && iQty>=0 && (iAmt>=0||iTotal>=0);
+  const isFormatA = !isFormatDetail && iDate>=0 && iNal>=0 && iBeznal>=0;
+  const isFormatB = !isFormatDetail && iDate>=0 && iPayType>=0 && (iAmt>=0||iTotal>=0);
+
+  const rows=[];
+
+  if(isFormatDetail){
+    // ── Детальный «Отчёт по продажам» — извлекаем категории ──
+    const amtIdx=iAmt>=0?iAmt:(iTotal>=0?iTotal:0);
+    let curDate=null;
+    const dayMap={};
+    for(let i=headerIdx+1;i<lines.length;i++){
+      const cols=parseCsvLine(lines[i]);
+      const dateCell=(cols[iDate]||'').trim();
+      if(dateCell){const d=parseDate(dateCell);if(d)curDate=d;}
+      if(!curDate)continue;
+      const name=(cols[iName]||'').trim();
+      const qty=parseInt(cols[iQty])||0;
+      const amt=parseNum(cols[amtIdx]||'0');
+      if(qty<=0&&amt<=0)continue;
+      if(!dayMap[curDate])dayMap[curDate]={date:curDate,nal:0,beznal:0,total:0,checks:1,priceCats:{}};
+      dayMap[curDate].total=Math.round(dayMap[curDate].total+amt);
+      const price=extractPriceFromName(name);
+      const cat=matchCatByPrice(price);
+      if(cat){
+        if(!dayMap[curDate].priceCats[cat.key])dayMap[curDate].priceCats[cat.key]={qty:0,rev:0};
+        dayMap[curDate].priceCats[cat.key].qty+=qty;
+        dayMap[curDate].priceCats[cat.key].rev+=Math.round(amt);
+      }
+    }
+    rows.push(...Object.values(dayMap));
+    return {type:'detail',rows};
+
+  } else if(isFormatA){
+    // ── Сводный отчёт — нал/безнал по дням ──
+    for(let i=headerIdx+1;i<lines.length;i++){
+      const cols=parseCsvLine(lines[i]);
+      if(!cols[iDate])continue;
+      const date=parseDate(cols[iDate]);if(!date)continue;
+      const nal=parseNum(cols[iNal]);
+      const beznal=parseNum(cols[iBeznal]);
+      const total=iTotal>=0?parseNum(cols[iTotal]):nal+beznal;
+      if(nal===0&&beznal===0&&total===0)continue;
+      const ex=rows.find(r=>r.date===date);
+      if(ex){ex.nal+=nal;ex.beznal+=beznal;ex.total+=total||nal+beznal;ex.checks++;}
+      else rows.push({date,nal:Math.round(nal),beznal:Math.round(beznal),total:Math.round(total||nal+beznal),checks:1});
+    }
+    return {type:'summary',rows};
+
+  } else if(isFormatB){
+    // ── Транзакционный формат ──
+    const amtIdx=iAmt>=0?iAmt:iTotal;
+    for(let i=headerIdx+1;i<lines.length;i++){
+      const cols=parseCsvLine(lines[i]);
+      if(!cols[iDate])continue;
+      const date=parseDate(cols[iDate]);if(!date)continue;
+      const amt=parseNum(cols[amtIdx]);if(amt===0)continue;
+      const pt=(cols[iPayType]||'').toLowerCase();
+      const isNal=pt.includes('нал')||pt.includes('касс');
+      const isBzn=pt.includes('безнал')||pt.includes('карт')||pt.includes('эквайр');
+      const ex=rows.find(r=>r.date===date);
+      if(ex){if(isNal)ex.nal+=amt;else if(isBzn)ex.beznal+=amt;else ex.nal+=amt;ex.total+=amt;ex.checks++;}
+      else{const r={date,nal:0,beznal:0,total:Math.round(amt),checks:1};if(isNal)r.nal=Math.round(amt);else if(isBzn)r.beznal=Math.round(amt);else r.nal=Math.round(amt);rows.push(r);}
+    }
+    rows.forEach(r=>{r.nal=Math.round(r.nal);r.beznal=Math.round(r.beznal);r.total=Math.round(r.total);});
+    return {type:'summary',rows};
+  }
+
+  throw new Error('Не удалось распознать формат CSV. Выгрузи «Отчёт по продажам» или «Сводный отчёт» из Эвотора.');
 }
 
-function showEvPreview(){
+// ── Merge both parsed files and refresh preview ──
+function evMergeAndPreview(){
+  const p1=window._evParsed1; // detail (categories)
+  const p2=window._evParsed2; // summary (nal/beznal)
+
+  // Auto-swap if user loaded files in wrong slots
+  let detail=null,summary=null;
+  if(p1&&p1.type==='detail')detail=p1;
+  if(p1&&p1.type==='summary')summary=p1;
+  if(p2&&p2.type==='detail')detail=p2;
+  if(p2&&p2.type==='summary')summary=p2;
+
+  // Build merged rows
+  const allDates=new Set([
+    ...(detail?detail.rows.map(r=>r.date):[]),
+    ...(summary?summary.rows.map(r=>r.date):[])
+  ]);
+
+  _evRows=[];
+  allDates.forEach(date=>{
+    const d=detail?detail.rows.find(r=>r.date===date):null;
+    const s=summary?summary.rows.find(r=>r.date===date):null;
+    const merged={
+      date,
+      nal:    s?s.nal   :(d?d.nal:0),
+      beznal: s?s.beznal:(d?d.beznal:0),
+      total:  s?s.total :(d?d.total:0),
+      checks: s?s.checks:(d?d.checks:1),
+    };
+    if(d&&d.priceCats&&Object.keys(d.priceCats).length>0)merged.priceCats=d.priceCats;
+    _evRows.push(merged);
+  });
+  _evRows.sort((a,b)=>b.date.localeCompare(a.date));
+
+  // Show status
+  const parts=[];
+  if(detail)parts.push(`<span style="color:var(--success)">① категории (${detail.rows.length} дн.)</span>`);
+  if(summary)parts.push(`<span style="color:var(--info)">② нал/безнал (${summary.rows.length} дн.)</span>`);
+  const statusEl=document.getElementById('ev-status-line');
+  if(statusEl)statusEl.innerHTML=`✅ Загружено: ${parts.join(' + ')}`;
+
+  evShowPreview();
+}
+
+function evShowError(msg){
+  const el=document.getElementById('ev-error');
+  const msgEl=document.getElementById('ev-error-msg');
+  if(el)el.style.display='block';
+  if(msgEl)msgEl.textContent=msg;
+}
+
+function evShowPreview(){
   const existing=sales().map(x=>x.date);
   const newRows=_evRows.filter(r=>!existing.includes(r.date));
   const dupRows=_evRows.filter(r=>existing.includes(r.date));
+  const hasCats=_evRows.some(r=>r.priceCats&&Object.keys(r.priceCats).length>0);
 
-  let tableHtml='<table style="width:100%"><thead><tr><th>Дата</th><th class="r">НАЛ</th><th class="r">БЕЗНАЛ</th><th class="r">Итого</th><th>Статус</th></tr></thead><tbody>';
+  let tableHtml=`<table style="width:100%"><thead><tr><th>Дата</th><th class="r">НАЛ</th><th class="r">БЕЗНАЛ</th><th class="r">Итого</th>${hasCats?'<th>Категории</th>':''}<th>Статус</th></tr></thead><tbody>`;
   _evRows.forEach(r=>{
     const isDup=existing.includes(r.date);
+    const catBadges=r.priceCats?tierBadges(r.priceCats)||'<span style="color:var(--muted);font-size:11px">—</span>':'—';
     tableHtml+=`<tr style="${isDup?'opacity:0.4':''}">
       <td>${fd(r.date)}</td>
       <td class="r">${r.nal?fr(r.nal):'—'}</td>
       <td class="r">${r.beznal?fr(r.beznal):'—'}</td>
       <td class="r" style="color:var(--accent);font-weight:600">${fr(r.total)}</td>
+      ${hasCats?`<td style="min-width:180px;white-space:normal">${catBadges}</td>`:''}
       <td><span class="badge ${isDup?'b-warn':'b-ok'}" style="font-size:10px">${isDup?'⚠️ Уже есть':'✅ Новая'}</span></td></tr>`;
   });
   tableHtml+='</tbody></table>';
 
   const totalNew=newRows.reduce((a,r)=>a+r.total,0);
-  document.getElementById('ev-drop').style.display='none';
   document.getElementById('ev-result').style.display='block';
   document.getElementById('ev-preview-table').innerHTML=tableHtml;
   document.getElementById('ev-stats').innerHTML=
     `Найдено дней: <b>${_evRows.length}</b> · Новых: <b style="color:var(--success)">${newRows.length}</b> · Уже есть: <b style="color:var(--warning)">${dupRows.length}</b> · Сумма новых: <b style="color:var(--accent)">${fr(totalNew)}</b>`;
-  document.getElementById('ev-save-btn').style.display='flex';
-  if(newRows.length===0)document.getElementById('ev-save-btn').textContent='Все дни уже импортированы';
+  const btn=document.getElementById('ev-save-btn');
+  if(btn){btn.style.display='flex';if(newRows.length===0)btn.textContent='Все дни уже импортированы';}
 }
 
 function svEvotorCSV(){
@@ -2943,8 +3017,10 @@ function svEvotorCSV(){
     const total=r.nal+r.beznal||1;
     const nalChecks=r.nal>0&&r.beznal===0?r.checks||0:r.nal>0?Math.round((r.nal/total)*(r.checks||0)):0;
     const beznalChecks=r.beznal>0&&r.nal===0?r.checks||0:r.beznal>0?Math.round((r.beznal/total)*(r.checks||0)):0;
-    existing.push({id:gid(),date:r.date,nal:r.nal,beznal:r.beznal,
-      nalChecks,beznalChecks,note:'Эвотор CSV',source:'evotor'});
+    const entry={id:gid(),date:r.date,nal:r.nal,beznal:r.beznal,
+      nalChecks,beznalChecks,note:'Эвотор CSV',source:'evotor'};
+    if(r.priceCats&&Object.keys(r.priceCats).length>0)entry.priceCats=r.priceCats;
+    existing.push(entry);
   });
   save(K.sales,existing);
   hideM();
