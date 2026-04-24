@@ -422,6 +422,7 @@ function calcDyn(){
 // ═══ NAV ═══
 let page='dashboard';
 function nav(p){
+  if(_viewMode&&p==='expenses')return; // expenses blocked in view mode
   page=p;
   document.querySelectorAll('.nav-item').forEach(el=>el.classList.toggle('active',el.dataset.p===p));
   render();
@@ -1810,10 +1811,11 @@ function rAudit(){
 
   // ── 3. BALANCE CONSISTENCY ──
   const bal=calcBal();
-  // Manually recompute and compare
+  // Manually recompute and compare (must mirror calcBal exactly, including Avito)
   let manNal=s.cashBalance||0, manBzn=s.beznalBalance||0;
   (s.founderInjections||[]).forEach(x=>{if(x.type==='nal')manNal+=x.amount||0;else manBzn+=x.amount||0;});
   ss.forEach(x=>{manNal+=x.nal||0;manBzn+=(x.beznal||0)*(1-acqRate);});
+  avitoSales().forEach(x=>{if(x.payType==='nal')manNal+=x.total||0;else manBzn+=(x.total||0)*(1-acqRate);});
   ee.filter(x=>x.category!=='Товар/Палеты'&&x.category!=='Доставка'&&x.fundSource!=='founder').forEach(x=>{manNal-=x.nal||0;manBzn-=x.beznal||0;});
   bb.forEach(x=>{getBatchPayments(x).forEach(p=>{if(p.source==='founder')return;if(p.type==='безнал')manBzn-=p.amount||0;else manNal-=p.amount||0;});});
   const nalDiff=Math.abs(bal.c-manNal), bznDiff=Math.abs(bal.b-manBzn);
@@ -1895,17 +1897,19 @@ function rAudit(){
 
     // ── FORMULA CROSS-CHECK: calcBal vs manual sum ──
     const balFromCalc=calcBal();
-    const manualNal=(s.cashBalance||0)+ss.reduce((a,x)=>a+(x.nal||0),0)-ee.filter(x=>x.fundSource!=='founder'&&x.category!=='Товар/Палеты'&&x.category!=='Доставка').reduce((a,x)=>a+(x.nal||0),0)-bb.flatMap(x=>getBatchPayments(x)).filter(p=>p.source!=='founder'&&p.type!=='безнал').reduce((a,p)=>a+(p.amount||0),0);
+    const _av=avitoSales();
+    const manualNal=(s.cashBalance||0)+(s.founderInjections||[]).filter(x=>x.type==='nal').reduce((a,x)=>a+(x.amount||0),0)+ss.reduce((a,x)=>a+(x.nal||0),0)+_av.filter(x=>x.payType==='nal').reduce((a,x)=>a+(x.total||0),0)-ee.filter(x=>x.fundSource!=='founder'&&x.category!=='Товар/Палеты'&&x.category!=='Доставка').reduce((a,x)=>a+(x.nal||0),0)-bb.flatMap(x=>getBatchPayments(x)).filter(p=>p.source!=='founder'&&p.type!=='безнал').reduce((a,p)=>a+(p.amount||0),0);
     const acqR=s.acquiringRate!=null?s.acquiringRate:0.0195;
-    const manualBzn=(s.beznalBalance||0)+ss.reduce((a,x)=>a+(x.beznal||0)*(1-acqR),0)-ee.filter(x=>x.fundSource!=='founder'&&x.category!=='Товар/Палеты'&&x.category!=='Доставка').reduce((a,x)=>a+(x.beznal||0),0)-bb.flatMap(x=>getBatchPayments(x)).filter(p=>p.source!=='founder'&&p.type==='безнал').reduce((a,p)=>a+(p.amount||0),0);
+    const manualBzn=(s.beznalBalance||0)+(s.founderInjections||[]).filter(x=>x.type!=='nal').reduce((a,x)=>a+(x.amount||0),0)+ss.reduce((a,x)=>a+(x.beznal||0)*(1-acqR),0)+_av.filter(x=>x.payType!=='nal').reduce((a,x)=>a+(x.total||0)*(1-acqR),0)-ee.filter(x=>x.fundSource!=='founder'&&x.category!=='Товар/Палеты'&&x.category!=='Доставка').reduce((a,x)=>a+(x.beznal||0),0)-bb.flatMap(x=>getBatchPayments(x)).filter(p=>p.source!=='founder'&&p.type==='безнал').reduce((a,p)=>a+(p.amount||0),0);
     const nalDrift=Math.abs(balFromCalc.c-manualNal), bznDrift=Math.abs(balFromCalc.b-manualBzn);
     if(nalDrift<1&&bznDrift<1) ok('Кросс-чек баланса: calcBal() = ручной пересчёт ✓',`НАЛ ${fr(balFromCalc.c)} · БЕЗНАЛ ${fr(balFromCalc.b)}`);
     else err(`Кросс-чек баланса: расхождение ${fr(nalDrift+bznDrift)}`,`calcBal НАЛ ${fr(balFromCalc.c)} vs ручной ${fr(manualNal)} · calcBal БЕЗНАЛ ${fr(balFromCalc.b)} vs ручной ${fr(manualBzn)}`);
 
     // ── FORMULA CROSS-CHECK: tax consistent ──
     const taxFromPeriod=calcPeriod(ss[0]?.date||today(),ss[ss.length-1]?.date||today()).tax;
-    const taxManual=totalRev*s.taxRate;
-    if(Math.abs(taxFromPeriod-taxManual)<1) ok('Кросс-чек налога: calcPeriod() = ручной расчёт ✓',`Налог АУСН ${(s.taxRate*100).toFixed(0)}% × ${fr(totalRev)} = ${fr(taxManual)}`);
+    const totalRevWithAvito=totalRev+avitoSales().reduce((a,x)=>a+(x.total||0),0);
+    const taxManual=totalRevWithAvito*s.taxRate;
+    if(Math.abs(taxFromPeriod-taxManual)<1) ok('Кросс-чек налога: calcPeriod() = ручной расчёт ✓',`Налог АУСН ${(s.taxRate*100).toFixed(0)}% × ${fr(totalRevWithAvito)} = ${fr(taxManual)}`);
     else warn(`Кросс-чек налога: разница ${fr(Math.abs(taxFromPeriod-taxManual))}`,`calcPeriod: ${fr(taxFromPeriod)} vs ручной: ${fr(taxManual)}`);
   }
 
@@ -3729,7 +3733,7 @@ async function publishToGist(){
     // Strip sensitive fields before publishing to public Gist
     const safeSettings=(()=>{const s={...cfg()};delete s.githubToken;delete s.gistId;return s;})();
     const data={
-      settings:safeSettings,sales:sales(),expenses:exps(),
+      settings:safeSettings,sales:sales(),
       batches:batches(),plans:plans(),inventory:inventory(),avito:avitoSales(),
       publishedAt:new Date().toISOString()
     };
@@ -3819,7 +3823,7 @@ async function initViewMode(){
     // ── KEY FIX: write gist data into localStorage so ALL render functions work ──
     if(_gistData.settings)save(K.settings,_gistData.settings);
     if(_gistData.sales)save(K.sales,_gistData.sales);
-    if(_gistData.expenses)save(K.expenses,_gistData.expenses);
+    // expenses are NOT loaded in view mode — partners must not have access
     if(_gistData.batches)save(K.batches,_gistData.batches);
     if(_gistData.plans)save(K.plans,_gistData.plans);
     if(_gistData.inventory)save(K.inventory,_gistData.inventory);
@@ -3830,8 +3834,11 @@ async function initViewMode(){
     // Lock editing — hide all edit/delete/add buttons
     document.body.classList.add('is-view-mode');
     // Lock editing nav items
-    document.querySelectorAll('.nav-item[data-p="sales"],[data-p="expenses"],[data-p="batches"],[data-p="settings"]')
+    document.querySelectorAll('.nav-item[data-p="sales"],[data-p="batches"],[data-p="settings"]')
       .forEach(el=>{el.style.opacity='0.35';el.style.pointerEvents='none';});
+    // Hide expenses tab completely in view mode
+    document.querySelectorAll('.nav-item[data-p="expenses"]')
+      .forEach(el=>{el.style.display='none';});
     render();
   }catch(e){
     document.getElementById('content').innerHTML=`
@@ -3859,7 +3866,7 @@ function syncMobTabs(p){
 
 function showMoreMenu(){
   const pages=[
-    {p:'expenses',icon:'💸',label:'Расходы'},
+    ...(!_viewMode?[{p:'expenses',icon:'💸',label:'Расходы'}]:[]),
     {p:'batches',icon:'📦',label:'Партии'},
     {p:'cashflow',icon:'💵',label:'Кэш-флоу'},
     {p:'dynamics',icon:'📅',label:'Динамика'},
@@ -3942,6 +3949,15 @@ function checkAutoBackup(){
 // Sidebar stats updated via render() directly
 
 if(!load(K.settings))save(K.settings,{...DEF});
+// ── Migration: fill missing fundSource → 'business' ──
+(function migrateFundSource(){
+  const ee=exps();
+  const missing=ee.filter(x=>!x.fundSource);
+  if(missing.length>0){
+    missing.forEach(x=>{x.fundSource='business';});
+    save(K.expenses,ee);
+  }
+})();
 if(_viewMode){
   initViewMode();
 }else{
