@@ -478,6 +478,7 @@ function render(){
   const pages={dashboard:rDash,sales:rSales,expenses:rExp,batches:rBatch,pnl:rPnL,cogs:rCogsPage,cashflow:rCash,dynamics:rDyn,planfact:rPF,planning:rPlanning,analysis:rAnalysis,settings:rSet,audit:rAudit};
   c.innerHTML=(pages[page]||rDash)();
   execScripts(c);
+  if(page==='analysis') requestAnimationFrame(()=>requestAnimationFrame(_initAnCharts));
   const s=cfg();
   document.getElementById('sb-sub').textContent=s.storeName||'Розница · Секонд-хенд';
   updateSbStats();
@@ -1737,7 +1738,8 @@ function rAnalysis(){
   </div>`;
 
   const tabs=[tab0,tab1,tab2,tab3];
-  const chartData=JSON.stringify({dayLabels,dayNal,dayBzn,avgRevLine,catChartLabels,catChartData,marginLabels,marginData,expKeys,expVals,projMonths,projRev,projNet});
+  // Store chart data globally so render() can init charts without injected scripts
+  window._anChartData={dayLabels,dayNal,dayBzn,avgRevLine,catChartLabels,catChartData,marginLabels,marginData,expKeys,expVals,projMonths,projRev,projNet};
 
   return`
 <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px;flex-wrap:wrap;gap:10px">
@@ -1761,22 +1763,21 @@ ${anDateBar(minDate,maxDate)}
 </div>
 
 ${tabs[_anTabs]}
+`;
+}
 
-<script>
-(function(){
+// ── Global chart initializer ──
+function _initAnCharts(){
+  const d=window._anChartData;
+  if(!d||typeof Chart==='undefined')return;
   const C=['#6366f1','#22c55e','#f97316','#eab308','#ef4444','#ec4899','#14b8a6','#a855f7','#fb923c'];
-  const d=${chartData};
-  function mk(id,cfg){const el=document.getElementById(id);if(!el)return;const o=Chart.getChart(el);if(o)o.destroy();return new Chart(el.getContext('2d'),cfg);}
+  function mk(id,cfg){const el=document.getElementById(id);if(!el)return;try{const o=Chart.getChart(el);if(o)o.destroy();}catch(e){}try{new Chart(el.getContext('2d'),cfg);}catch(e){console.warn('Chart init failed:',id,e);}}
   const sc=(extra={})=>({responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{color:'#888',font:{size:10}}},...(extra.plugins||{})},scales:{x:{ticks:{color:'#666',font:{size:10}},grid:{color:'rgba(255,255,255,.04)'}},...(extra.scales||{})},...extra});
-  setTimeout(()=>{
-    if(document.getElementById('an-rev-chart')) mk('an-rev-chart',{type:'bar',data:{labels:d.dayLabels,datasets:[{label:'НАЛ',data:d.dayNal,backgroundColor:'rgba(34,197,94,.5)',borderRadius:3,stack:'a'},{label:'БЕЗНАЛ',data:d.dayBzn,backgroundColor:'rgba(249,115,22,.65)',borderRadius:3,stack:'a'},{label:'Среднее',data:d.avgRevLine,type:'line',borderColor:'#eab308',borderWidth:1.5,pointRadius:0,borderDash:[4,4]}]},options:sc({scales:{x:{ticks:{color:'#666',font:{size:10}},grid:{color:'rgba(255,255,255,.04)'}},y:{ticks:{color:'#666',font:{size:10},callback:v=>(v/1000)+'к'},grid:{color:'rgba(255,255,255,.04)'}}}})}));
-    if(document.getElementById('an-cat-chart')) mk('an-cat-chart',{type:'doughnut',data:{labels:d.catChartLabels,datasets:[{data:d.catChartData,backgroundColor:C,borderWidth:0}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'right',labels:{color:'#888',font:{size:10},boxWidth:10}}}}});
-    if(document.getElementById('an-margin-chart')) mk('an-margin-chart',{type:'bar',data:{labels:d.marginLabels,datasets:[{data:d.marginData,backgroundColor:d.marginData.map(v=>v>1000?'rgba(34,197,94,.8)':v>500?'rgba(249,115,22,.7)':'rgba(99,102,241,.6)'),borderRadius:5}]},options:sc({plugins:{legend:{display:false}},scales:{x:{ticks:{color:'#666',font:{size:11}},grid:{display:false}},y:{ticks:{color:'#666',font:{size:10}},grid:{color:'rgba(255,255,255,.04)'}}}})}));
-    if(document.getElementById('an-exp-chart')) mk('an-exp-chart',{type:'doughnut',data:{labels:d.expKeys,datasets:[{data:d.expVals,backgroundColor:C,borderWidth:0}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'right',labels:{color:'#888',font:{size:10},boxWidth:10}}}}});
-    if(document.getElementById('an-proj-chart')) mk('an-proj-chart',{type:'bar',data:{labels:d.projMonths,datasets:[{label:'Выручка',data:d.projRev,backgroundColor:'rgba(249,115,22,.35)',borderRadius:4,yAxisID:'y1',order:2},{label:'Чист. прибыль',data:d.projNet,backgroundColor:d.projNet.map(v=>v>=0?'rgba(34,197,94,.75)':'rgba(239,68,68,.7)'),borderRadius:4,yAxisID:'y2',order:1}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{color:'#888',font:{size:11}}}},scales:{x:{ticks:{color:'#666',font:{size:10}},grid:{color:'rgba(255,255,255,.04)'}},y1:{type:'linear',position:'left',ticks:{color:'#f97316',font:{size:9},callback:v=>(v/1000)+'к'},grid:{color:'rgba(255,255,255,.04)'}},y2:{type:'linear',position:'right',ticks:{color:'#22c55e',font:{size:9},callback:v=>(v/1000)+'к'},grid:{display:false}}}}}));
-  },80);
-})();
-<\/script>`;
+  mk('an-rev-chart',{type:'bar',data:{labels:d.dayLabels,datasets:[{label:'НАЛ',data:d.dayNal,backgroundColor:'rgba(34,197,94,.5)',borderRadius:3,stack:'a'},{label:'БЕЗНАЛ',data:d.dayBzn,backgroundColor:'rgba(249,115,22,.65)',borderRadius:3,stack:'a'},{label:'Среднее',data:d.avgRevLine,type:'line',borderColor:'#eab308',borderWidth:1.5,pointRadius:0,borderDash:[4,4]}]},options:sc({scales:{x:{ticks:{color:'#666',font:{size:10}},grid:{color:'rgba(255,255,255,.04)'}},y:{ticks:{color:'#666',font:{size:10},callback:v=>(v/1000)+'к'},grid:{color:'rgba(255,255,255,.04)'}}}})});
+  mk('an-cat-chart',{type:'doughnut',data:{labels:d.catChartLabels,datasets:[{data:d.catChartData,backgroundColor:C,borderWidth:0}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'right',labels:{color:'#888',font:{size:10},boxWidth:10}}}}});
+  mk('an-margin-chart',{type:'bar',data:{labels:d.marginLabels,datasets:[{data:d.marginData,backgroundColor:d.marginData.map(v=>v>1000?'rgba(34,197,94,.8)':v>500?'rgba(249,115,22,.7)':'rgba(99,102,241,.6)'),borderRadius:5}]},options:sc({plugins:{legend:{display:false}},scales:{x:{ticks:{color:'#666',font:{size:11}},grid:{display:false}},y:{ticks:{color:'#666',font:{size:10}},grid:{color:'rgba(255,255,255,.04)'}}}})});
+  mk('an-exp-chart',{type:'doughnut',data:{labels:d.expKeys,datasets:[{data:d.expVals,backgroundColor:C,borderWidth:0}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'right',labels:{color:'#888',font:{size:10},boxWidth:10}}}}});
+  mk('an-proj-chart',{type:'bar',data:{labels:d.projMonths,datasets:[{label:'Выручка',data:d.projRev,backgroundColor:'rgba(249,115,22,.35)',borderRadius:4,yAxisID:'y1',order:2},{label:'Чист. прибыль',data:d.projNet,backgroundColor:d.projNet.map(v=>v>=0?'rgba(34,197,94,.75)':'rgba(239,68,68,.7)'),borderRadius:4,yAxisID:'y2',order:1}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{color:'#888',font:{size:11}}}},scales:{x:{ticks:{color:'#666',font:{size:10}},grid:{color:'rgba(255,255,255,.04)'}},y1:{type:'linear',position:'left',ticks:{color:'#f97316',font:{size:9},callback:v=>(v/1000)+'к'},grid:{color:'rgba(255,255,255,.04)'}},y2:{type:'linear',position:'right',ticks:{color:'#22c55e',font:{size:9},callback:v=>(v/1000)+'к'},grid:{display:false}}}}});
 }
 
 function rAudit(){
