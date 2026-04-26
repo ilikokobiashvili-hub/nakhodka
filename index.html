@@ -249,7 +249,7 @@ body.is-view-mode #gist-pub-btn{display:none!important}
 
 <script>
 // ═══ STORAGE ═══
-const K={settings:'nk_settings',sales:'nk_sales',expenses:'nk_expenses',batches:'nk_batches',plans:'nk_plans',inventory:'nk_inventory',avito:'nk_avito'};
+const K={settings:'nk_settings',sales:'nk_sales',expenses:'nk_expenses',batches:'nk_batches',plans:'nk_plans',inventory:'nk_inventory',avito:'nk_avito',transfers:'nk_transfers'};
 const DEF={taxRate:.08,cashBalance:0,beznalBalance:0,storeName:'НАХОДКА',startDate:'2026-03-23',acquiringRate:0.0195};
 const CATS=['Товар/Палеты','Доставка','Аренда','Зарплата','Маркетинг','Прочее','Ремонт','Оборудование'];
 const GOCAT=['Одежда женская','Одежда мужская','Одежда детская','Обувь','Аксессуары','Текстиль','Посуда','Игрушки','Электроника','Книги','Прочее'];
@@ -275,6 +275,7 @@ function exps(){return load(K.expenses)||[]}
 function batches(){return load(K.batches)||[]}
 function plans(){return load(K.plans)||[]}
 function inventory(){return load(K.inventory)||[]}
+function transfers(){return load(K.transfers)||[]}
 function gid(){return Date.now().toString(36)+Math.random().toString(36).slice(2,7)}
 
 // ─── PRICE CAT HELPERS ───
@@ -363,6 +364,12 @@ function calcBal(){
       if(p.source==='founder')return;
       if(p.type==='безнал')b-=p.amount||0; else c-=p.amount||0;
     });
+  });
+  // Переводы между кассой и счётом
+  transfers().forEach(x=>{
+    const a=x.amount||0;
+    if((x.dir||'beznal_to_nal')==='beznal_to_nal'){b-=a;c+=a;}
+    else{c-=a;b+=a;}
   });
   return{c,b};
 }
@@ -1433,12 +1440,13 @@ ${cogsBatches.length>0?`<div class="card" style="margin-bottom:20px">
 function rCash(){
   const bal=calcBal(),s=cfg();
   const acqRate=s.acquiringRate!=null?s.acquiringRate:0.0195;
-  // Collect all unique dates: sales, avito, expenses, AND each individual batch payment date
+  // Collect all unique dates: sales, avito, expenses, AND each individual batch payment date, AND transfers
   const allD=new Set([
     ...sales().map(x=>x.date),
     ...avitoSales().map(x=>x.date),
     ...exps().map(x=>x.date),
-    ...batches().flatMap(x=>getBatchPayments(x).map(p=>p.date||x.date))
+    ...batches().flatMap(x=>getBatchPayments(x).map(p=>p.date||x.date)),
+    ...transfers().map(x=>x.date)
   ]);
   const dates=Array.from(allD).sort();
   let c=s.cashBalance||0,b=s.beznalBalance||0;
@@ -1461,19 +1469,29 @@ function rCash(){
     const inb=inbGross-inbAcq;
     const outc=de.reduce((a,x)=>a+(x.nal||0),0)+bPays.filter(p=>p.type!=='безнал').reduce((a,p)=>a+(p.amount||0),0);
     const outb=de.reduce((a,x)=>a+(x.beznal||0),0)+bPays.filter(p=>p.type==='безнал').reduce((a,p)=>a+(p.amount||0),0);
-    c+=inc-outc;b+=inb-outb;
-    return{d,inc,inbGross,inbAcq,inb,outc,outb,c,b};
+    // Transfers for this date (both directions)
+    const dayTransfers=transfers().filter(x=>x.date===d);
+    const trToNal=dayTransfers.filter(x=>(x.dir||'beznal_to_nal')==='beznal_to_nal').reduce((a,x)=>a+(x.amount||0),0);
+    const trToBzn=dayTransfers.filter(x=>x.dir==='nal_to_beznal').reduce((a,x)=>a+(x.amount||0),0);
+    c+=inc-outc+trToNal-trToBzn; b+=inb-outb-trToNal+trToBzn;
+    return{d,inc,inbGross,inbAcq,inb,outc,outb,trToNal,trToBzn,dayTransfers,c,b};
   });
   const founderExp=exps().filter(x=>x.fundSource==='founder'&&x.category!=='Товар/Палеты'&&x.category!=='Доставка').reduce((a,x)=>a+(x.nal||0)+(x.beznal||0),0);
   const founderBatch=batches().flatMap(x=>getBatchPayments(x)).filter(p=>p.source==='founder').reduce((a,p)=>a+(p.amount||0),0);
   const founderTotal=founderExp+founderBatch;
   const totalAcq=rows.reduce((a,r)=>a+r.inbAcq,0);
+  const totalTransfers=transfers().reduce((a,x)=>a+(x.amount||0),0);
+  const totalToNal=transfers().filter(x=>(x.dir||'beznal_to_nal')==='beznal_to_nal').reduce((a,x)=>a+(x.amount||0),0);
+  const totalToBzn=transfers().filter(x=>x.dir==='nal_to_beznal').reduce((a,x)=>a+(x.amount||0),0);
   return`
-<div class="page-hdr"><div><div class="page-title">Кэш-флоу</div><div class="page-sub">Динамика движения денег бизнеса</div></div></div>
+<div class="page-hdr"><div><div class="page-title">Кэш-флоу</div><div class="page-sub">Динамика движения денег бизнеса</div></div>
+<button class="btn btn-p" onclick="oAddTransfer()">⇄ Безнал → Нал</button></div>
 <div class="kpi-grid" style="max-width:700px">
   <div class="kpi"><div class="kpi-lbl">Текущий НАЛ</div><div class="kpi-val ${bal.c>=0?'ok':'bad'}">${fr(bal.c)}</div></div>
   <div class="kpi"><div class="kpi-lbl">Текущий БЕЗНАЛ</div><div class="kpi-val ${bal.b>=0?'ok':'bad'}">${fr(bal.b)}</div><div style="font-size:10px;color:var(--info);margin-top:3px">уже −${fp(acqRate)} эквайринг</div></div>
   ${totalAcq>0?`<div class="kpi"><div class="kpi-lbl">💳 Эквайринг удержан</div><div class="kpi-val" style="color:var(--info)">${fr(totalAcq)}</div></div>`:''}
+  ${totalToNal>0?`<div class="kpi" style="border-color:rgba(168,85,247,.4)"><div class="kpi-lbl">💳→💵 В кассу</div><div class="kpi-val" style="color:#a855f7">${fr(totalToNal)}</div></div>`:''}
+  ${totalToBzn>0?`<div class="kpi" style="border-color:rgba(59,130,246,.4)"><div class="kpi-lbl">💵→💳 На счёт</div><div class="kpi-val" style="color:var(--info)">${fr(totalToBzn)}</div></div>`:''}
   ${founderTotal>0?`<div class="kpi" style="border-color:rgba(168,85,247,.4)"><div class="kpi-lbl">🙋 Вложено основателем (не в кассе)</div><div class="kpi-val" style="color:#a855f7">${fr(founderTotal)}</div></div>`:''}
 </div>
 ${founderTotal>0?`<div style="background:rgba(168,85,247,.06);border:1px solid rgba(168,85,247,.3);border-radius:10px;padding:12px 18px;margin-bottom:16px;font-size:12px;color:var(--muted)">
@@ -1482,17 +1500,38 @@ ${founderTotal>0?`<div style="background:rgba(168,85,247,.06);border:1px solid r
 ${totalAcq>0?`<div style="background:rgba(59,130,246,.06);border:1px solid rgba(59,130,246,.25);border-radius:10px;padding:12px 18px;margin-bottom:16px;font-size:12px;color:var(--muted)">
   💳 <b style="color:var(--info)">Приход БЕЗНАЛ = сумма Эвотора − комиссия эквайринга ${fp(acqRate)}</b> — в таблице показаны реальные суммы, которые зачисляет банк. Итого удержано: <b style="color:var(--info)">${fr(totalAcq)}</b>
 </div>`:''}
+${transfers().length>0?`
+<div class="card" style="margin-bottom:20px">
+  <div class="card-hdr"><h3>⇄ Переводы между кассой и счётом</h3></div>
+  <div class="tbl-wrap"><table><thead><tr><th>Дата</th><th>Направление</th><th>Примечание</th><th class="r">Сумма</th><th></th></tr></thead>
+  <tbody>${[...transfers()].sort((a,b)=>b.date.localeCompare(a.date)).map(t=>{
+    const isBToN=(t.dir||'beznal_to_nal')==='beznal_to_nal';
+    return`<tr>
+    <td>${fd(t.date)}</td>
+    <td><span style="color:${isBToN?'#a855f7':'var(--info)'}">${isBToN?'💳 → 💵 Безнал в Нал':'💵 → 💳 Нал в Безнал'}</span></td>
+    <td>${t.note||'—'}</td>
+    <td class="r" style="color:${isBToN?'#a855f7':'var(--info)'};font-weight:600">${fr(t.amount)}</td>
+    <td><button class="btn-d" onclick="delTransfer('${t.id}')">✕</button></td>
+  </tr>`;}).join('')}
+  </tbody></table></div>
+</div>`:''}
 <div class="card">
   <div class="card-hdr"><h3>Движение по дням (только деньги бизнеса)</h3></div>
   ${rows.length===0?'<div class="empty">Нет данных</div>':`
-  <div class="tbl-wrap"><table><thead><tr><th>Дата</th><th class="r">Приход НАЛ</th><th class="r">Расход НАЛ</th><th class="r">Остаток НАЛ</th><th class="r">Безнал Эвотор</th><th class="r">−Эквайринг</th><th class="r">Приход БЕЗНАЛ</th><th class="r">Расход БЕЗНАЛ</th><th class="r">Остаток БЕЗНАЛ</th></tr></thead>
+  <div class="tbl-wrap"><table><thead><tr><th>Дата</th><th class="r">Приход НАЛ</th><th class="r">💳→💵 Пришло</th><th class="r">💵→💳 Ушло</th><th class="r">Расход НАЛ</th><th class="r">Остаток НАЛ</th><th class="r">Безнал Эвотор</th><th class="r">−Эквайринг</th><th class="r">Приход БЕЗНАЛ</th><th class="r">💵→💳 Пришло</th><th class="r">💳→💵 Ушло</th><th class="r">Расход БЕЗНАЛ</th><th class="r">Остаток БЕЗНАЛ</th></tr></thead>
   <tbody>${rows.reverse().map(r=>`<tr>
     <td>${fd(r.d)}</td>
-    <td class="r ok">${r.inc?fr(r.inc):'—'}</td><td class="r bad">${r.outc?fr(r.outc):'—'}</td>
+    <td class="r ok">${r.inc?fr(r.inc):'—'}</td>
+    <td class="r" style="color:#a855f7;font-weight:600" title="${r.dayTransfers.filter(t=>(t.dir||'beznal_to_nal')==='beznal_to_nal').map(t=>t.note||'Безнал→Нал').join(', ')}">${r.trToNal?'+'+fr(r.trToNal):'—'}</td>
+    <td class="r" style="color:var(--info);font-weight:600" title="${r.dayTransfers.filter(t=>t.dir==='nal_to_beznal').map(t=>t.note||'Нал→Безнал').join(', ')}">${r.trToBzn?'−'+fr(r.trToBzn):'—'}</td>
+    <td class="r bad">${r.outc?fr(r.outc):'—'}</td>
     <td class="r ${r.c>=0?'':'bad'}" style="font-weight:600">${fr(r.c)}</td>
     <td class="r dim">${r.inbGross?fr(r.inbGross):'—'}</td>
     <td class="r" style="color:var(--info)">${r.inbAcq?'−'+fr(r.inbAcq):'—'}</td>
-    <td class="r ok">${r.inb?fr(r.inb):'—'}</td><td class="r bad">${r.outb?fr(r.outb):'—'}</td>
+    <td class="r ok">${r.inb?fr(r.inb):'—'}</td>
+    <td class="r" style="color:var(--info);font-weight:600">${r.trToBzn?'+'+fr(r.trToBzn):'—'}</td>
+    <td class="r" style="color:#a855f7;font-weight:600">${r.trToNal?'−'+fr(r.trToNal):'—'}</td>
+    <td class="r bad">${r.outb?fr(r.outb):'—'}</td>
     <td class="r ${r.b>=0?'':'bad'}" style="font-weight:600">${fr(r.b)}</td></tr>`).join('')}
   </tbody></table></div>`}
 </div>`;
@@ -1664,7 +1703,7 @@ function rAnalysis(){
   const projMonths=[];const tod=new Date();
   for(let i=0;i<12;i++){const d=new Date(tod.getFullYear(),tod.getMonth()+i,1);projMonths.push(d.toLocaleDateString('ru-RU',{month:'short',year:'2-digit'}));}
   const cogsK=grossMargin<0.5?1-grossMargin:0.45;
-  const fixedM=161050;
+  const fixedM=(s.fixedCosts||[]).reduce((a,x)=>a+(x.amount||0),0)||161050;
   const projRev=projMonths.map((_,i)=>Math.round(baseRev*(1+i*0.03)));
   const projNet=projRev.map(r=>Math.round(r*(1-cogsK)-fixedM-r*s.taxRate-r*0.68*acqRate));
 
@@ -1759,8 +1798,10 @@ function rAnalysis(){
         ${expKeys.map(k=>`<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid rgba(255,255,255,.04);font-size:13px"><span style="color:var(--muted)">${k}</span><span style="font-family:'JetBrains Mono',monospace">${fr(expByCat[k])}</span></div>`).join('')}
         <div style="display:flex;justify-content:space-between;padding:8px 0;font-weight:700;font-size:14px;border-top:1px solid var(--border);margin-top:4px"><span>Итого расходы</span><span style="color:var(--danger)">${fr(totalBizExp)}</span></div>
         <div style="margin-top:10px;padding:10px;background:var(--surface2);border-radius:8px;font-size:12px;color:var(--muted)">
-          БУ/мес: <b style="color:var(--text);font-size:14px">${grossMargin>0?fr(fixedM/grossMargin):'—'}</b><br>
-          <span style="font-size:11px">при маржинальности ${fp(grossMargin)}</span>
+          ${fixedM>0?`ТБУ/мес: <b style="color:var(--warning);font-size:15px">${grossMargin>0?fr(Math.round(fixedM/grossMargin)):'—'}</b><br>
+          <span style="font-size:11px">Пост. расх. ${fr(fixedM)} ÷ маржа ${fp(grossMargin)}</span><br>
+          <span style="font-size:11px;color:${totalRev*30/Math.max(allSales.length,1)>=fixedM/grossMargin?'var(--success)':'var(--danger)'}">→ <a href="#" onclick="nav('planning')" style="color:inherit;text-decoration:underline">Подробнее в Планировании</a></span>`
+          :`<span style="color:var(--danger)">Постоянные расходы не заданы.<br><a href="#" onclick="nav('planning')" style="color:var(--accent)">Задать в Планировании →</a></span>`}
         </div>
       </div>
     </div>
@@ -1989,9 +2030,9 @@ function rAudit(){
     // ── FORMULA CROSS-CHECK: calcBal vs manual sum ──
     const balFromCalc=calcBal();
     const _av=avitoSales();
-    const manualNal=(s.cashBalance||0)+(s.founderInjections||[]).filter(x=>x.type==='nal').reduce((a,x)=>a+(x.amount||0),0)+ss.reduce((a,x)=>a+(x.nal||0),0)+_av.filter(x=>x.payType==='nal').reduce((a,x)=>a+(x.total||0),0)-ee.filter(x=>x.fundSource!=='founder'&&x.category!=='Товар/Палеты'&&x.category!=='Доставка').reduce((a,x)=>a+(x.nal||0),0)-bb.flatMap(x=>getBatchPayments(x)).filter(p=>p.source!=='founder'&&p.type!=='безнал').reduce((a,p)=>a+(p.amount||0),0);
+    const manualNal=(s.cashBalance||0)+(s.founderInjections||[]).filter(x=>x.type==='nal').reduce((a,x)=>a+(x.amount||0),0)+ss.reduce((a,x)=>a+(x.nal||0),0)+_av.filter(x=>x.payType==='nal').reduce((a,x)=>a+(x.total||0),0)-ee.filter(x=>x.fundSource!=='founder'&&x.category!=='Товар/Палеты'&&x.category!=='Доставка').reduce((a,x)=>a+(x.nal||0),0)-bb.flatMap(x=>getBatchPayments(x)).filter(p=>p.source!=='founder'&&p.type!=='безнал').reduce((a,p)=>a+(p.amount||0),0)+transfers().filter(x=>(x.dir||'beznal_to_nal')==='beznal_to_nal').reduce((a,x)=>a+(x.amount||0),0)-transfers().filter(x=>x.dir==='nal_to_beznal').reduce((a,x)=>a+(x.amount||0),0);
     const acqR=s.acquiringRate!=null?s.acquiringRate:0.0195;
-    const manualBzn=(s.beznalBalance||0)+(s.founderInjections||[]).filter(x=>x.type!=='nal').reduce((a,x)=>a+(x.amount||0),0)+ss.reduce((a,x)=>a+(x.beznal||0)*(1-acqR),0)+_av.filter(x=>x.payType!=='nal').reduce((a,x)=>a+(x.total||0)*(1-acqR),0)-ee.filter(x=>x.fundSource!=='founder'&&x.category!=='Товар/Палеты'&&x.category!=='Доставка').reduce((a,x)=>a+(x.beznal||0),0)-bb.flatMap(x=>getBatchPayments(x)).filter(p=>p.source!=='founder'&&p.type==='безнал').reduce((a,p)=>a+(p.amount||0),0);
+    const manualBzn=(s.beznalBalance||0)+(s.founderInjections||[]).filter(x=>x.type!=='nal').reduce((a,x)=>a+(x.amount||0),0)+ss.reduce((a,x)=>a+(x.beznal||0)*(1-acqR),0)+_av.filter(x=>x.payType!=='nal').reduce((a,x)=>a+(x.total||0)*(1-acqR),0)-ee.filter(x=>x.fundSource!=='founder'&&x.category!=='Товар/Палеты'&&x.category!=='Доставка').reduce((a,x)=>a+(x.beznal||0),0)-bb.flatMap(x=>getBatchPayments(x)).filter(p=>p.source!=='founder'&&p.type==='безнал').reduce((a,p)=>a+(p.amount||0),0)-transfers().filter(x=>(x.dir||'beznal_to_nal')==='beznal_to_nal').reduce((a,x)=>a+(x.amount||0),0)+transfers().filter(x=>x.dir==='nal_to_beznal').reduce((a,x)=>a+(x.amount||0),0);
     const nalDrift=Math.abs(balFromCalc.c-manualNal), bznDrift=Math.abs(balFromCalc.b-manualBzn);
     if(nalDrift<1&&bznDrift<1) ok('Кросс-чек баланса: calcBal() = ручной пересчёт ✓',`НАЛ ${fr(balFromCalc.c)} · БЕЗНАЛ ${fr(balFromCalc.b)}`);
     else err(`Кросс-чек баланса: расхождение ${fr(nalDrift+bznDrift)}`,`calcBal НАЛ ${fr(balFromCalc.c)} vs ручной ${fr(manualNal)} · calcBal БЕЗНАЛ ${fr(balFromCalc.b)} vs ручной ${fr(manualBzn)}`);
@@ -2013,7 +2054,8 @@ function rAudit(){
       ...ss.map(x=>x.date),
       ...av.map(x=>x.date),
       ...ee.map(x=>x.date),
-      ...bb.flatMap(x=>getBatchPayments(x).map(p=>p.date||x.date))
+      ...bb.flatMap(x=>getBatchPayments(x).map(p=>p.date||x.date)),
+      ...transfers().map(x=>x.date)
     ]);
     let cCf=s.cashBalance||0, bCf=s.beznalBalance||0;
     (s.founderInjections||[]).forEach(x=>{if(x.type==='nal')cCf+=x.amount||0;else bCf+=x.amount||0;});
@@ -2031,6 +2073,10 @@ function rAudit(){
       const outc=dee.reduce((a,x)=>a+(x.nal||0),0)+bPays.filter(p=>p.type!=='безнал').reduce((a,p)=>a+(p.amount||0),0);
       const outb=dee.reduce((a,x)=>a+(x.beznal||0),0)+bPays.filter(p=>p.type==='безнал').reduce((a,p)=>a+(p.amount||0),0);
       cCf+=inc-outc; bCf+=inb-outb;
+      const dayTr=transfers().filter(x=>x.date===d);
+      const trToNalCf=dayTr.filter(x=>(x.dir||'beznal_to_nal')==='beznal_to_nal').reduce((a,x)=>a+(x.amount||0),0);
+      const trToBznCf=dayTr.filter(x=>x.dir==='nal_to_beznal').reduce((a,x)=>a+(x.amount||0),0);
+      cCf+=trToNalCf-trToBznCf; bCf-=trToNalCf-trToBznCf;
     });
     const balCf=calcBal();
     const nalDiffCf=Math.abs(Math.round(balCf.c)-Math.round(cCf));
@@ -3574,8 +3620,63 @@ function resetPcRows(){
   render();
 }
 
+// ─── TRANSFERS (безнал ⇄ нал) ───
+function oAddTransfer(){
+  const today=new Date().toISOString().slice(0,10);
+  showM(`
+<div class="m-hdr"><h2>⇄ Перевод между кассой и счётом</h2><button class="m-x" onclick="hideM()">×</button></div>
+<div class="fg c1" style="gap:12px">
+  <div class="fgrp"><label>Направление перевода</label>
+    <select id="tr-dir" onchange="updateTransferHint()">
+      <option value="beznal_to_nal">💳 → 💵 Безнал в Нал (снял со счёта, положил в кассу)</option>
+      <option value="nal_to_beznal">💵 → 💳 Нал в Безнал (сдал наличные на счёт)</option>
+    </select>
+  </div>
+  <div id="tr-hint" style="background:rgba(168,85,247,.08);border:1px solid rgba(168,85,247,.3);border-radius:8px;padding:10px 14px;font-size:12px;color:var(--muted)">
+    <b style="color:#a855f7">Безнал уменьшится, Нал увеличится</b> — общая сумма денег не меняется.
+  </div>
+  <div class="fgrp"><label>Дата</label><input type="date" id="tr-date" value="${today}"></div>
+  <div class="fgrp"><label>Сумма (₽)</label><input type="number" id="tr-amount" min="1" placeholder="например 10000"></div>
+  <div class="fgrp"><label>Примечание (необязательно)</label><input type="text" id="tr-note" placeholder="например: инкассация за неделю"></div>
+</div>
+<div class="m-foot">
+  <button class="btn btn-g" onclick="hideM()">Отмена</button>
+  <button class="btn btn-p" onclick="saveTransfer()">Сохранить перевод</button>
+</div>`);
+}
+
+function updateTransferHint(){
+  const dir=document.getElementById('tr-dir').value;
+  const hint=document.getElementById('tr-hint');
+  if(dir==='beznal_to_nal'){
+    hint.style.background='rgba(168,85,247,.08)';hint.style.borderColor='rgba(168,85,247,.3)';
+    hint.innerHTML='<b style="color:#a855f7">Безнал уменьшится, Нал увеличится</b> — общая сумма денег не меняется.';
+  } else {
+    hint.style.background='rgba(59,130,246,.08)';hint.style.borderColor='rgba(59,130,246,.3)';
+    hint.innerHTML='<b style="color:var(--info)">Нал уменьшится, Безнал увеличится</b> — общая сумма денег не меняется.';
+  }
+}
+
+function saveTransfer(){
+  const date=document.getElementById('tr-date').value;
+  const amount=parseFloat(document.getElementById('tr-amount').value)||0;
+  const note=document.getElementById('tr-note').value.trim();
+  const dir=document.getElementById('tr-dir').value;
+  if(!date){alert('Укажи дату');return;}
+  if(amount<=0){alert('Сумма должна быть больше нуля');return;}
+  const list=transfers();
+  list.push({id:'tr'+Date.now(),date,amount,note,dir:dir||'beznal_to_nal'});
+  save(K.transfers,list);
+  hideM();render();
+}
+
+function delTransfer(id){
+  if(!confirm('Удалить этот перевод?'))return;
+  save(K.transfers,transfers().filter(x=>x.id!==id));
+  render();
+}
+
 function oEditPlan(){
-  const s=cfg(),start=new Date(s.startDate||'2026-03-01'),pp=plans();
   const ms=[];for(let i=0;i<12;i++){const d=new Date(start.getFullYear(),start.getMonth()+i,1);ms.push(d.toISOString().slice(0,7))}
   showM(`
 <div class="m-hdr"><h2>Редактировать план</h2><button class="m-x" onclick="hideM()">×</button></div>
@@ -3600,7 +3701,7 @@ function svPlans(){
 }
 
 function expData(){
-  const d={settings:cfg(),sales:sales(),expenses:exps(),batches:batches(),plans:plans(),inventory:inventory(),avito:avitoSales(),exportDate:new Date().toISOString()};
+  const d={settings:cfg(),sales:sales(),expenses:exps(),batches:batches(),plans:plans(),inventory:inventory(),avito:avitoSales(),transfers:transfers(),exportDate:new Date().toISOString()};
   const blob=new Blob([JSON.stringify(d,null,2)],{type:'application/json'});
   const url=URL.createObjectURL(blob),a=document.createElement('a');
   a.href=url;a.download=`nakhodka_backup_${today()}.json`;a.click();URL.revokeObjectURL(url);
@@ -3624,6 +3725,7 @@ function impData(input){
     if(d.plans)save(K.plans,d.plans);
     if(d.inventory)save(K.inventory,d.inventory);
     if(d.avito)save(K.avito,d.avito);
+    if(d.transfers)save(K.transfers,d.transfers);
     toast('✅ Данные импортированы');render();
   }catch(err){toast('❌ Ошибка импорта: '+err.message,'err',5000)}};
   r.readAsText(file);input.value='';
@@ -3695,6 +3797,27 @@ function calcPlanning(){
   const withdrawn=s.withdrawn||0;
   const businessProfit=totalRev-allExp.filter(x=>x.category!=='Товар/Палеты'&&x.category!=='Доставка').reduce((a,x)=>a+(x.nal||0)+(x.beznal||0),0)-allBatch.reduce((a,x)=>a+(x.cost||0)+(x.delivery||0),0)-totalTaxAccrued;
 
+  // ── Gross margin from SOLD items (same logic as rAnalysis) ──
+  const allSalesAll=sales(),allAv=avitoSales(),allBB=batches();
+  const acqRate=s.acquiringRate!=null?s.acquiringRate:0.0195;
+  const _totalRev=allSalesAll.reduce((a,x)=>a+(x.nal||0)+(x.beznal||0),0);
+  const _totalBzn=allSalesAll.reduce((a,x)=>a+(x.beznal||0),0);
+  const _totalRevReal=_totalRev-_totalBzn*acqRate;
+  // Unit COGS by category
+  function bK(b){const t=(b.cost||0)+(b.delivery||0);const ci=b.cogsItems||[];const p=ci.reduce((a,c)=>a+(c.qty||0)*(c.price||0),0);return p?t/p:0;}
+  const uCogs={};
+  allBB.forEach(b=>{const k=bK(b);(b.cogsItems||[]).forEach(ci=>{if(!uCogs[ci.key])uCogs[ci.key]={p1:null,p2:null};if(b.batchNum==='П1')uCogs[ci.key].p1=ci.unitCogs||Math.round(ci.price*k);else uCogs[ci.key].p2=ci.unitCogs||Math.round(ci.price*k);});});
+  const p1U={};
+  allBB.filter(b=>b.batchNum==='П1').forEach(b=>(b.cogsItems||[]).forEach(c=>{p1U[c.key]=c.qty||0;}));
+  const sBC={};
+  allSalesAll.forEach(x=>{const pc=x.priceCats||{};Object.entries(pc).forEach(([k,v])=>{sBC[k]=(sBC[k]||0)+(v.qty||0);});});
+  let _soldCogs=0;
+  Object.entries(sBC).forEach(([k,qty])=>{const uc=uCogs[k]||{};const p1a=p1U[k]||0;const f1=Math.min(qty,p1a);const f2=Math.max(0,qty-p1a);_soldCogs+=f1*(uc.p1||0)+f2*(uc.p2||0);});
+  const grossMarginReal=_totalRevReal>0?Math.max(0,(_totalRevReal-_soldCogs)/_totalRevReal):0;
+
+  // ── Fixed costs (постоянные расходы) ──
+  const fixedM=(s.fixedCosts||[]).reduce((a,x)=>a+(x.amount||0),0);
+
   // ── Days until cash gap ──
   const dailyBurn=(avgOpExp+avgCogs)/30;
   const daysOfCash=dailyBurn>0?Math.floor(totalCash/dailyBurn):999;
@@ -3705,13 +3828,66 @@ function calcPlanning(){
   const maxPurchaseBudget=Math.max(0,totalCash-minSafeBalance);
 
   return{
-    bal,totalCash,totalRev,totalTaxAccrued,taxReserve,
+    bal,totalCash,totalRev:_totalRev,totalTaxAccrued,taxReserve,
     opBuffer,purchasePlan,lockedFunds,safeDividend,
     invested,withdrawn,businessProfit,
-    avgRev,avgOpExp,avgCogs,
+    avgRev,avgOpExp,avgCogs,fixedM,grossMarginReal,
     dailyBurn,daysOfCash,maxPurchaseBudget,
     minSafeBalance,last1
   };
+}
+
+// ── Fixed costs management ──
+function oManageFixedCosts(){
+  const s=cfg();
+  const fc=s.fixedCosts||[];
+  showM(`
+<div class="m-hdr"><h2>📌 Постоянные расходы / месяц</h2><button class="m-x" onclick="hideM()">×</button></div>
+<div style="font-size:12px;color:var(--muted);margin-bottom:14px">Аренда, зарплаты, реклама — то что платишь каждый месяц независимо от выручки.</div>
+<div id="fc-rows" style="display:flex;flex-direction:column;gap:8px;margin-bottom:14px">
+${fc.map(x=>`
+<div class="fc-row" data-id="${x.id}" style="display:grid;grid-template-columns:1fr 140px 36px;gap:8px;align-items:center">
+  <input type="text" class="fc-name" value="${x.name}" placeholder="Название" style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);padding:8px 10px;font-family:'Montserrat',sans-serif;font-size:13px;outline:none;width:100%">
+  <input type="number" class="fc-amt" value="${x.amount}" placeholder="Сумма ₽" min="0" style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);padding:8px 10px;font-family:'Montserrat',sans-serif;font-size:13px;outline:none;width:100%">
+  <button onclick="this.closest('.fc-row').remove();updateFcTotal()" style="background:rgba(239,68,68,.15);border:none;color:var(--danger);border-radius:6px;padding:6px 8px;cursor:pointer;font-size:13px">✕</button>
+</div>`).join('')}
+</div>
+<button onclick="addFcRow()" class="btn btn-g" style="width:100%;margin-bottom:14px">+ Добавить статью</button>
+<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 14px;background:var(--surface2);border-radius:8px;margin-bottom:4px">
+  <span style="font-size:13px;font-weight:700">Итого постоянных расходов / мес:</span>
+  <span id="fc-total" style="font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:var(--danger)">${fr(fc.reduce((a,x)=>a+(x.amount||0),0))}</span>
+</div>
+<div class="m-foot">
+  <button class="btn btn-g" onclick="hideM()">Отмена</button>
+  <button class="btn btn-p" onclick="saveFixedCosts()">💾 Сохранить</button>
+</div>`);
+}
+
+function addFcRow(){
+  const row=document.createElement('div');
+  row.className='fc-row';
+  row.style.cssText='display:grid;grid-template-columns:1fr 140px 36px;gap:8px;align-items:center';
+  row.innerHTML=`<input type="text" class="fc-name" placeholder="Название (напр. Аренда)" style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);padding:8px 10px;font-family:'Montserrat',sans-serif;font-size:13px;outline:none;width:100%">
+  <input type="number" class="fc-amt" placeholder="Сумма ₽" min="0" oninput="updateFcTotal()" style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);padding:8px 10px;font-family:'Montserrat',sans-serif;font-size:13px;outline:none;width:100%">
+  <button onclick="this.closest('.fc-row').remove();updateFcTotal()" style="background:rgba(239,68,68,.15);border:none;color:var(--danger);border-radius:6px;padding:6px 8px;cursor:pointer;font-size:13px">✕</button>`;
+  document.getElementById('fc-rows').appendChild(row);
+}
+
+function updateFcTotal(){
+  const total=Array.from(document.querySelectorAll('.fc-amt')).reduce((a,el)=>a+(parseFloat(el.value)||0),0);
+  const el=document.getElementById('fc-total');
+  if(el)el.textContent=fr(total);
+}
+
+function saveFixedCosts(){
+  const rows=Array.from(document.querySelectorAll('.fc-row'));
+  const fc=rows.map(row=>({
+    id:row.dataset.id||'fc'+Date.now()+Math.random().toString(36).slice(2,6),
+    name:row.querySelector('.fc-name').value.trim()||'Без названия',
+    amount:parseFloat(row.querySelector('.fc-amt').value)||0
+  })).filter(x=>x.amount>0||x.name!=='Без названия');
+  save(K.settings,{...cfg(),fixedCosts:fc});
+  hideM();render();
 }
 
 // ── Save planning settings ──
@@ -3727,7 +3903,7 @@ function savePurchasePlan(){
 function rPlanning(){
   const p=calcPlanning(),s=cfg();
   const {bal,totalCash,taxReserve,opBuffer,purchasePlan,lockedFunds,safeDividend,
-         invested,withdrawn,avgRev,avgOpExp,avgCogs,dailyBurn,daysOfCash,
+         invested,withdrawn,avgRev,avgOpExp,avgCogs,fixedM,dailyBurn,daysOfCash,
          maxPurchaseBudget,minSafeBalance,businessProfit,totalTaxAccrued} = p;
 
   // Health status
@@ -3753,6 +3929,130 @@ function rPlanning(){
   <div><div class="page-title">💡 Финансовое планирование</div>
   <div class="page-sub">Распределение денег · Закуп · Дивиденды · Кассовый разрыв</div></div>
 </div>
+
+${(()=>{
+  const s=cfg();
+  const fc=s.fixedCosts||[];
+  const acqRate=s.acquiringRate!=null?s.acquiringRate:0.0195;
+  const totalFixed=fc.reduce((a,x)=>a+(x.amount||0),0);
+  const taxRate=s.taxRate||0.08;
+
+  // ── Gross margin: из последних 3 месяцев с данными (не всё время) ──
+  const dyn=calcDyn();
+  const activeMths=dyn.filter(m=>m.rev>0);
+  const last3=activeMths.slice(-3);
+  // Для маржи считаем: (выручка - COGS проданного) / выручка за эти месяцы
+  // Берём grossMarginReal из calcPlanning (считается по реально проданным единицам)
+  // Но дополнительно проверяем через динамику последних 3 мес
+  const l3Rev=last3.reduce((a,m)=>a+m.rev,0);
+  // gp из calcDyn — это rev - cogs (batch cost). Для секонд-хенда это хорошее приближение
+  // если партии распродаются за месяц. Но используем grossMarginReal (по проданным) как основу.
+  const grossMarginPct=p.grossMarginReal||0;
+
+  // ── Реальная доля безнала из последних 3 мес продаж ──
+  const allSalesArr=sales();
+  const today3=new Date();
+  const threeMonthsAgo=new Date(today3.getFullYear(),today3.getMonth()-3,1).toISOString().slice(0,7);
+  const recentSales=allSalesArr.filter(x=>x.date&&x.date.slice(0,7)>=threeMonthsAgo);
+  const rNal=recentSales.reduce((a,x)=>a+(x.nal||0),0);
+  const rBzn=recentSales.reduce((a,x)=>a+(x.beznal||0),0);
+  const beznalShare=(rNal+rBzn)>0?rBzn/(rNal+rBzn):0.5;
+  // Точная переменная ставка: налог + эквайринг × реальная доля безнала
+  const variableRate=taxRate+(acqRate*beznalShare);
+  // Вклад. маржа = маржа минус переменные издержки
+  const contributionMargin=Math.max(0,grossMarginPct-variableRate);
+
+  // BEP = Fixed / Contribution Margin
+  const bep=contributionMargin>0?Math.round(totalFixed/contributionMargin):0;
+  const dailyBep=Math.round(bep/30);
+
+  // ── Факт: текущий ИДУЩИЙ месяц (не последний завершённый) ──
+  const curYM=new Date().toISOString().slice(0,7);
+  const curMonthSales=allSalesArr.filter(x=>x.date&&x.date.startsWith(curYM));
+  const curMonthAvito=avitoSales().filter(x=>x.date&&x.date.startsWith(curYM));
+  const curMonthRev=curMonthSales.reduce((a,x)=>a+(x.nal||0)+(x.beznal||0),0)
+                   +curMonthAvito.reduce((a,x)=>a+(x.total||0),0);
+  // Если текущий месяц пустой — берём последний с данными
+  const factRev=curMonthRev>0?curMonthRev:(dyn.slice(-1)[0]?.rev||0);
+  const isCurrentMonth=curMonthRev>0;
+
+  const bepReached=factRev>=bep;
+  const bepPct=bep>0?Math.min(100,Math.round(factRev/bep*100)):0;
+  const bepGap=Math.max(0,bep-factRev);
+
+  return`
+<!-- БЛОК 0: Постоянные расходы + ТБУ -->
+<div class="card" style="margin-bottom:20px;border-color:${totalFixed===0?'var(--danger)':'var(--border)'}">
+  <div class="card-hdr" style="justify-content:space-between">
+    <h3>📌 Постоянные расходы · Точка безубыточности</h3>
+    <button class="btn btn-g btn-sm" onclick="oManageFixedCosts()">✏️ Редактировать</button>
+  </div>
+  <div style="padding:18px 20px">
+    ${totalFixed===0?`<div style="background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.3);border-radius:8px;padding:14px 16px;font-size:13px;color:var(--danger);margin-bottom:16px">
+      ⚠️ Постоянные расходы не заданы — точка безубыточности не рассчитывается.<br>
+      <span style="font-size:12px;color:var(--muted)">Нажми «Редактировать» и введи аренду, зарплаты, рекламу и т.д.</span>
+    </div>`:''}
+
+    ${totalFixed>0?`
+    <!-- Список статей -->
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px;margin-bottom:18px">
+      ${fc.map(x=>`<div style="background:var(--surface2);border-radius:8px;padding:12px 14px;display:flex;justify-content:space-between;align-items:center">
+        <span style="font-size:12px;color:var(--muted)">${x.name}</span>
+        <span style="font-family:'JetBrains Mono',monospace;font-size:13px;font-weight:600;color:var(--danger)">${fr(x.amount)}</span>
+      </div>`).join('')}
+      <div style="background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.25);border-radius:8px;padding:12px 14px;display:flex;justify-content:space-between;align-items:center">
+        <span style="font-size:12px;font-weight:700;color:var(--text)">ИТОГО / мес</span>
+        <span style="font-family:'JetBrains Mono',monospace;font-size:15px;font-weight:700;color:var(--danger)">${fr(totalFixed)}</span>
+      </div>
+    </div>
+
+    <!-- ТБУ виджет -->
+    <div style="background:var(--surface2);border-radius:12px;padding:16px 18px">
+      <div style="font-size:11px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:1px;margin-bottom:14px">🎯 Точка безубыточности</div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:12px;margin-bottom:16px">
+        <div class="kpi" style="background:var(--surface)"><div class="kpi-lbl">Нужно выручки / мес</div><div class="kpi-val" style="color:var(--warning);font-size:22px">${fr(bep)}</div></div>
+        <div class="kpi" style="background:var(--surface)"><div class="kpi-lbl">Нужно выручки / день</div><div class="kpi-val" style="color:var(--warning)">${fr(dailyBep)}</div></div>
+        <div class="kpi" style="background:var(--surface)"><div class="kpi-lbl">Факт ${isCurrentMonth?'текущий месяц':'последний мес с данными'}</div><div class="kpi-val ${bepReached?'ok':'bad'}">${fr(factRev)}</div></div>
+        <div class="kpi" style="background:var(--surface)"><div class="kpi-lbl">${bepReached?'✅ Прибыль сверх ТБУ':'❌ До ТБУ не хватает'}</div><div class="kpi-val ${bepReached?'ok':'bad'}">${fr(bepReached?factRev-bep:bepGap)}</div></div>
+      </div>
+
+      <!-- Прогресс-бар ТБУ -->
+      <div style="margin-bottom:8px;display:flex;justify-content:space-between;font-size:11px;color:var(--muted)">
+        <span>0</span><span style="color:${bepReached?'var(--success)':'var(--warning)'};font-weight:700">ТБУ: ${fr(bep)}</span><span>${fr(Math.max(bep*1.3,factRev*1.1))}</span>
+      </div>
+      <div style="height:14px;background:var(--surface);border-radius:8px;overflow:hidden;margin-bottom:14px;position:relative">
+        <div style="position:absolute;top:0;left:0;height:100%;width:${bepPct}%;background:${bepReached?'var(--success)':'var(--warning)'};border-radius:8px;transition:width .4s"></div>
+        <div style="position:absolute;top:0;left:${Math.min(76,Math.round(100/1.3))}%;height:100%;width:2px;background:rgba(255,255,255,.3)"></div>
+      </div>
+
+      <!-- Разбивка расчёта -->
+      <div style="background:var(--surface);border-radius:8px;padding:12px 14px;font-size:12px">
+        <div style="font-weight:700;color:var(--text);margin-bottom:10px;font-size:11px;text-transform:uppercase;letter-spacing:.5px">📐 Как считается:</div>
+        <div style="display:grid;grid-template-columns:1fr auto;gap:5px 16px;color:var(--muted);align-items:center">
+          <span>Валовая маржа (выручка − себестоимость проданного)</span>
+          <span style="font-family:'JetBrains Mono',monospace;color:var(--text);text-align:right">${(grossMarginPct*100).toFixed(1)}%</span>
+
+          <span>− Налог АУСН (из настроек)</span>
+          <span style="font-family:'JetBrains Mono',monospace;color:var(--danger);text-align:right">−${(taxRate*100).toFixed(0)}%</span>
+
+          <span>− Эквайринг ${(acqRate*100).toFixed(2)}% × доля безнала ${(beznalShare*100).toFixed(0)}% <span style="font-size:10px">(из реальных продаж за 3 мес)</span></span>
+          <span style="font-family:'JetBrains Mono',monospace;color:var(--danger);text-align:right">−${(acqRate*beznalShare*100).toFixed(1)}%</span>
+
+          <div style="border-top:1px solid var(--border);padding-top:8px;margin-top:4px;font-weight:700;color:var(--text)">= Вклад. маржа (на каждый рубль выручки остаётся для покрытия постоянных)</div>
+          <div style="border-top:1px solid var(--border);padding-top:8px;margin-top:4px;font-family:'JetBrains Mono',monospace;font-weight:700;color:var(--accent);text-align:right">${(contributionMargin*100).toFixed(1)}%</div>
+
+          <span style="color:var(--text)">ТБУ = ${fr(totalFixed)} постоянных ÷ ${(contributionMargin*100).toFixed(1)}% вклад. маржи</span>
+          <span style="font-family:'JetBrains Mono',monospace;font-weight:700;color:var(--warning);text-align:right">${fr(bep)}</span>
+        </div>
+        <div style="margin-top:10px;padding-top:8px;border-top:1px solid var(--border);font-size:11px;color:var(--muted);line-height:1.6">
+          🔄 <b>В реальном времени:</b> маржа — все продажи в системе · доля безнала — последние 3 мес · факт — ${isCurrentMonth?'текущий апрель (обновляется каждый раз при открытии страницы)':'последний месяц с данными'}
+        </div>
+      </div>
+    </div>
+    `:''}
+  </div>
+</div>
+`})()}
 
 <!-- БЛОК 1: Финансовое здоровье -->
 <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:20px 24px;margin-bottom:20px;display:flex;align-items:center;gap:20px;flex-wrap:wrap">
