@@ -4316,7 +4316,7 @@ async function publishToGist(){
     const safeSettings=(()=>{const s={...cfg()};delete s.githubToken;delete s.gistId;return s;})();
     const _bal=calcBal();
     // Aggregate expenses by date — daily totals only, no individual records (privacy)
-    const _expAgg=exps().filter(e=>e.fundSource!=='founder').reduce((m,e)=>{
+    const _expAgg=exps().reduce((m,e)=>{
       const k=e.date;if(!m[k])m[k]={nal:0,beznal:0,cogs_nal:0,cogs_beznal:0};
       const isCogs=e.category==='Товар/Палеты'||e.category==='Доставка';
       if(isCogs){m[k].cogs_nal+=(e.nal||0);m[k].cogs_beznal+=(e.beznal||0);}
