@@ -347,26 +347,26 @@ function getBatchPayments(x){
 }
 
 function calcBal(){
-  const s=cfg();
+  const s=cfgData();
   const acqRate=s.acquiringRate!=null?s.acquiringRate:0.0195;
   let c=s.cashBalance||0,b=s.beznalBalance||0;
   (s.founderInjections||[]).forEach(x=>{if(x.type==='nal')c+=x.amount||0;else b+=x.amount||0;});
-  sales().forEach(x=>{c+=x.nal||0;b+=(x.beznal||0)*(1-acqRate);});
+  salesData().forEach(x=>{c+=x.nal||0;b+=(x.beznal||0)*(1-acqRate);});
   // Avito deals: nal goes to cash, beznal to bank minus acquiring
-  avitoSales().forEach(x=>{
+  (_viewMode&&_gistData?(_gistData.avito||[]):avitoSales()).forEach(x=>{
     if(x.payType==='nal')c+=x.total||0;
     else b+=(x.total||0)*(1-acqRate);
   });
-  exps().filter(x=>x.category!=='Товар/Палеты'&&x.category!=='Доставка'&&x.fundSource!=='founder')
+  expsData().filter(x=>x.category!=='Товар/Палеты'&&x.category!=='Доставка'&&x.fundSource!=='founder')
     .forEach(x=>{c-=x.nal||0;b-=x.beznal||0});
-  batches().forEach(x=>{
+  batchesData().forEach(x=>{
     getBatchPayments(x).forEach(p=>{
       if(p.source==='founder')return;
       if(p.type==='безнал')b-=p.amount||0; else c-=p.amount||0;
     });
   });
   // Переводы между кассой и счётом
-  transfers().forEach(x=>{
+  (_viewMode&&_gistData?(_gistData.transfers||[]):transfers()).forEach(x=>{
     const a=x.amount||0;
     if((x.dir||'beznal_to_nal')==='beznal_to_nal'){b-=a;c+=a;}
     else{c-=a;b+=a;}
