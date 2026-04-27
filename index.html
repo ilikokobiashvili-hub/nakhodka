@@ -347,6 +347,7 @@ function getBatchPayments(x){
 }
 
 function calcBal(){
+  if(_viewMode&&_gistData&&_gistData.calculatedBal)return{c:_gistData.calculatedBal.c||0,b:_gistData.calculatedBal.b||0};
   const s=cfgData();
   const acqRate=s.acquiringRate!=null?s.acquiringRate:0.0195;
   let c=s.cashBalance||0,b=s.beznalBalance||0;
@@ -4299,9 +4300,11 @@ async function publishToGist(){
   try{
     // Strip sensitive fields before publishing to public Gist
     const safeSettings=(()=>{const s={...cfg()};delete s.githubToken;delete s.gistId;return s;})();
+    const _bal=calcBal();
     const data={
       settings:safeSettings,sales:sales(),
       batches:batches(),plans:plans(),inventory:inventory(),avito:avitoSales(),
+      calculatedBal:{c:_bal.c,b:_bal.b},
       publishedAt:new Date().toISOString()
     };
     const body={
