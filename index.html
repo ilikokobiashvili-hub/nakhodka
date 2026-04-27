@@ -306,11 +306,11 @@ function ml(ym){const[y,m]=ym.split('-');const mn=['','Январь','Февра
 
 // ═══ CALCS ═══
 function calcPeriod(f,t){
-  const s=cfg();
-  const ms=sales().filter(x=>x.date>=f&&x.date<=t);
-  const av=avitoSales().filter(x=>x.date>=f&&x.date<=t);
-  const me=exps().filter(x=>x.date>=f&&x.date<=t);
-  const mb=batches().filter(x=>x.date>=f&&x.date<=t);
+  const s=cfgData();
+  const ms=salesData().filter(x=>x.date>=f&&x.date<=t);
+  const av=(_viewMode&&_gistData?(_gistData.avito||[]):avitoSales()).filter(x=>x.date>=f&&x.date<=t);
+  const me=expsData().filter(x=>x.date>=f&&x.date<=t);
+  const mb=batchesData().filter(x=>x.date>=f&&x.date<=t);
   const revShop=ms.reduce((a,x)=>a+(x.nal||0)+(x.beznal||0),0);
   const revAvito=av.reduce((a,x)=>a+(x.total||0),0);
   const rev=revShop+revAvito;
@@ -376,12 +376,12 @@ function calcBal(){
 }
 
 function calcPnL(f,t){
-  const s=cfg();
+  const s=cfgData();
   const acqRate=s.acquiringRate!=null?s.acquiringRate:0.0195;
-  const ms=sales().filter(x=>x.date>=f&&x.date<=t);
-  const me=exps().filter(x=>x.date>=f&&x.date<=t);
-  const mb=batches().filter(x=>x.date>=f&&x.date<=t);
-  const av=avitoSales().filter(x=>x.date>=f&&x.date<=t);
+  const ms=salesData().filter(x=>x.date>=f&&x.date<=t);
+  const me=expsData().filter(x=>x.date>=f&&x.date<=t);
+  const mb=batchesData().filter(x=>x.date>=f&&x.date<=t);
+  const av=(_viewMode&&_gistData?(_gistData.avito||[]):avitoSales()).filter(x=>x.date>=f&&x.date<=t);
   const rn=ms.reduce((a,x)=>a+(x.nal||0),0)+av.filter(x=>x.payType==='nal').reduce((a,x)=>a+(x.total||0),0);
   const rb=ms.reduce((a,x)=>a+(x.beznal||0),0)+av.filter(x=>x.payType==='beznal').reduce((a,x)=>a+(x.total||0),0);
   const rev=rn+rb;
@@ -401,13 +401,13 @@ function calcPnL(f,t){
 }
 
 function calcDyn(){
-  const s=cfg();
-  const allDates=new Set([...sales().map(x=>mk(x.date)),...avitoSales().map(x=>mk(x.date)),...exps().map(x=>mk(x.date)),...batches().map(x=>mk(x.date))]);
+  const s=cfgData();
+  const allDates=new Set([...salesData().map(x=>mk(x.date)),...(_viewMode&&_gistData?(_gistData.avito||[]):avitoSales()).map(x=>mk(x.date)),...expsData().map(x=>mk(x.date)),...batchesData().map(x=>mk(x.date))]);
   return Array.from(allDates).sort().map(ym=>{
-    const ms=sales().filter(x=>x.date.startsWith(ym));
-    const av=avitoSales().filter(x=>x.date.startsWith(ym));
-    const me=exps().filter(x=>x.date.startsWith(ym));
-    const mb=batches().filter(x=>x.date.startsWith(ym));
+    const ms=salesData().filter(x=>x.date.startsWith(ym));
+    const av=(_viewMode&&_gistData?(_gistData.avito||[]):avitoSales()).filter(x=>x.date.startsWith(ym));
+    const me=expsData().filter(x=>x.date.startsWith(ym));
+    const mb=batchesData().filter(x=>x.date.startsWith(ym));
     const revShop=ms.reduce((a,x)=>a+(x.nal||0)+(x.beznal||0),0);
     const revAvito=av.reduce((a,x)=>a+(x.total||0),0);
     const rev=revShop+revAvito;
@@ -4271,7 +4271,21 @@ let _gistData=null;            // данные загруженные из Gist
 
 // Override data accessors in view mode
 function salesData(){return _viewMode&&_gistData?(_gistData.sales||[]):sales();}
-function expsData(){return _viewMode&&_gistData?(_gistData.expenses||[]):exps();}
+function expsData(){
+  if(_viewMode&&_gistData){
+    if(_gistData.expenses&&_gistData.expenses.length)return _gistData.expenses;
+    if(_gistData.expenseAggregate){
+      const rows=[];
+      Object.entries(_gistData.expenseAggregate).forEach(([date,v])=>{
+        if((v.nal||0)+(v.beznal||0)>0)rows.push({id:'agg_op_'+date,date,nal:v.nal||0,beznal:v.beznal||0,category:'Прочее',fundSource:'business'});
+        if((v.cogs_nal||0)+(v.cogs_beznal||0)>0)rows.push({id:'agg_cogs_'+date,date,nal:v.cogs_nal||0,beznal:v.cogs_beznal||0,category:'Товар/Палеты',fundSource:'business'});
+      });
+      return rows;
+    }
+    return[];
+  }
+  return exps();
+}
 function batchesData(){return _viewMode&&_gistData?(_gistData.batches||[]):batches();}
 function plansData(){return _viewMode&&_gistData?(_gistData.plans||[]):plans();}
 function cfgData(){return _viewMode&&_gistData?(_gistData.settings||cfg()):cfg();}
@@ -4301,9 +4315,18 @@ async function publishToGist(){
     // Strip sensitive fields before publishing to public Gist
     const safeSettings=(()=>{const s={...cfg()};delete s.githubToken;delete s.gistId;return s;})();
     const _bal=calcBal();
+    // Aggregate expenses by date — daily totals only, no individual records (privacy)
+    const _expAgg=exps().filter(e=>e.fundSource!=='founder').reduce((m,e)=>{
+      const k=e.date;if(!m[k])m[k]={nal:0,beznal:0,cogs_nal:0,cogs_beznal:0};
+      const isCogs=e.category==='Товар/Палеты'||e.category==='Доставка';
+      if(isCogs){m[k].cogs_nal+=(e.nal||0);m[k].cogs_beznal+=(e.beznal||0);}
+      else{m[k].nal+=(e.nal||0);m[k].beznal+=(e.beznal||0);}
+      return m;
+    },{});
     const data={
       settings:safeSettings,sales:sales(),
       batches:batches(),plans:plans(),inventory:inventory(),avito:avitoSales(),
+      expenseAggregate:_expAgg,
       calculatedBal:{c:_bal.c,b:_bal.b},
       publishedAt:new Date().toISOString()
     };
