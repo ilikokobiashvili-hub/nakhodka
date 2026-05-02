@@ -222,7 +222,7 @@ body.is-view-mode #gist-pub-btn{display:none!important}
     <div class="nav-item" data-p="settings"><span class="nav-icon">⚙️</span>Настройки</div>
   <div class="nav-item" data-p="audit" style="border-top:1px solid var(--border);margin-top:4px"><span class="nav-icon">🔍</span>Аудит системы</div>
   </div>
-  <div class="sb-foot"><div id="sb-stats" style="margin-bottom:10px;padding:8px 10px;background:var(--surface2);border-radius:8px;font-size:11px;line-height:1.8;color:var(--muted)">⏳ Загрузка...</div><p>Данные хранятся в браузере.<br>Делай бэкап в Настройках.</p></div>
+  <div class="sb-foot"><div id="sb-stats" style="margin-bottom:10px;padding:8px 10px;background:var(--surface2);border-radius:8px;font-size:11px;line-height:1.8;color:var(--muted)">⏳ Загрузка...</div><p>Данные хранятся в браузере.<br>Делай бэкап в Настройках.</p><button onclick="showRestoreDialog()" style="width:100%;margin-top:8px;background:rgba(249,115,22,.12);border:1px solid rgba(249,115,22,.3);border-radius:8px;padding:7px;font-size:11px;font-weight:700;color:var(--accent);cursor:pointer;font-family:Montserrat,sans-serif">📱 Восстановить из облака</button></div>
 </nav>
 
 <main id="content"></main>
@@ -2319,9 +2319,31 @@ function rSet(){
   </div>
 </div>
 
-<!-- БЛОК Е: БЭКАП -->
+<!-- БЛОК Е: СИНХРОНИЗАЦИЯ И БЭКАП -->
+<div style="margin-top:28px;max-width:580px">
+  <div style="font-size:11px;font-weight:700;color:var(--muted);letter-spacing:1px;margin-bottom:10px;text-transform:uppercase">📱 Синхронизация между устройствами</div>
+  <div style="background:rgba(249,115,22,.06);border:1px solid rgba(249,115,22,.3);border-radius:12px;padding:18px 20px">
+    <div style="font-size:12px;color:var(--muted);line-height:1.8;margin-bottom:16px">
+      Чтобы использовать полный доступ (управление, загрузка данных) на iPhone или другом устройстве:<br>
+      1. Нажми <b style="color:var(--text)">«Сохранить бэкап в облако»</b> — создаст приватный Gist с полными данными<br>
+      2. Скопируй полученный <b style="color:var(--text)">Код синхронизации</b><br>
+      3. На iPhone: открой приложение → Настройки → <b style="color:var(--text)">«Восстановить на устройстве»</b> → вставь код<br>
+      4. Данные загрузятся, все функции будут доступны ✅
+    </div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+      <button id="cloud-backup-btn" class="btn btn-p btn-sm" onclick="saveCloudBackup()">☁️ Сохранить бэкап в облако</button>
+      <button class="btn btn-g btn-sm" onclick="showRestoreDialog()" style="color:var(--accent);border-color:var(--accent)">📱 Восстановить на этом устройстве</button>
+      ${s.backupGistId?`<span style="font-size:11px;color:var(--success)">✅ Бэкап настроен</span>`:''}
+    </div>
+    <div style="margin-top:12px;font-size:11px;color:var(--muted);line-height:1.6">
+      💡 Обновляй бэкап каждый раз когда вносишь важные изменения (новые продажи, расходы).<br>
+      ⚠️ Данные хранятся в <b>приватном</b> Gist — доступны только тебе через твой токен.
+    </div>
+  </div>
+</div>
+
 <div style="margin-top:24px;max-width:540px">
-  <div style="font-size:11px;font-weight:700;color:var(--muted);letter-spacing:1px;margin-bottom:10px;text-transform:uppercase">🗄 Резервное копирование</div>
+  <div style="font-size:11px;font-weight:700;color:var(--muted);letter-spacing:1px;margin-bottom:10px;text-transform:uppercase">🗄 Резервное копирование (локальное)</div>
   <div style="display:flex;gap:10px;flex-wrap:wrap">
     <button class="btn btn-g" onclick="expData()">📤 Экспорт JSON</button>
     <button class="btn btn-g" onclick="document.getElementById('imp-f').click()">📥 Импорт JSON</button>
@@ -3562,6 +3584,78 @@ function saveGistToken(){
   toast('✅ Токен сохранён! Жми Опубликовать');render();
 }
 
+// ═══ CLOUD BACKUP (private Gist — full data) ═══
+async function saveCloudBackup(){
+  const s=cfg();const token=s.githubToken||'';
+  if(!token){toast('⚠️ Нужен GitHub токен в Настройках','warn',4000);return;}
+  const btn=document.getElementById('cloud-backup-btn');
+  if(btn){btn.textContent='⏳ Сохраняю...';btn.disabled=true;}
+  try{
+    const d={settings:cfg(),sales:sales(),expenses:exps(),batches:batches(),plans:plans(),inventory:inventory(),avito:avitoSales(),transfers:transfers(),backupDate:new Date().toISOString()};
+    const body={description:'НАХОДКА — полный бэкап',public:false,files:{'nakhodka_full_backup.json':{content:JSON.stringify(d,null,2)}}};
+    const backupGistId=s.backupGistId||'';
+    let url='https://api.github.com/gists';let method='POST';
+    if(backupGistId){url='https://api.github.com/gists/'+backupGistId;method='PATCH';}
+    const r=await fetch(url,{method,headers:{'Authorization':'token '+token,'Content-Type':'application/json'},body:JSON.stringify(body)});
+    if(!r.ok){const e=await r.json();throw new Error(e.message||r.status);}
+    const j=await r.json();
+    save(K.settings,{...cfg(),backupGistId:j.id});
+    const encoded=btoa(token+'|'+j.id);
+    showM('<div class="m-hdr"><h2>\u2601\ufe0f Бэкап сохранён!</h2><button class="m-x" onclick="hideM()">×</button></div>'
+     +'<div style="font-size:13px;color:var(--muted);line-height:1.7;margin-bottom:14px">Все данные сохранены в приватный GitHub Gist.<br>Чтобы открыть полный доступ на iPhone — используй <b style="color:var(--text)">Код синхронизации</b>:</div>'
+     +'<div style="background:var(--surface2);border:1px solid var(--accent);border-radius:10px;padding:14px 16px;margin-bottom:14px">'
+     +'<div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.8px;margin-bottom:8px">Код синхронизации</div>'
+     +'<div style="font-family:\'JetBrains Mono\',monospace;font-size:10px;color:var(--accent);word-break:break-all;line-height:1.6">'+encoded+'</div></div>'
+     +'<div style="font-size:11px;color:var(--warning);line-height:1.8;margin-bottom:14px">⚠️ Храни код в безопасном месте — он содержит токен GitHub.<br>📱 На iPhone: Настройки → «Восстановить на устройстве» → вставь код.</div>'
+     +'<div class="m-foot"><button class="btn btn-g" onclick="hideM()">Закрыть</button>'
+     +'<button class="btn btn-p" onclick="navigator.clipboard.writeText(\''+encoded+'\').then(()=>{this.textContent=\'✅ Скопировано!\'})">📋 Копировать код</button></div>');
+    render();
+  }catch(e){
+    if(e.message==='Bad credentials'){toast('❌ Токен недействителен — пересоздай в Настройках','err',6000);}
+    else{toast('❌ '+e.message,'err',5000);}
+  }finally{if(btn){btn.textContent='☁️ Сохранить бэкап в облако';btn.disabled=false;}}
+}
+
+function showRestoreDialog(){
+  showM('<div class="m-hdr"><h2>📱 Восстановить на устройстве</h2><button class="m-x" onclick="hideM()">×</button></div>'
+   +'<div style="font-size:13px;color:var(--muted);line-height:1.7;margin-bottom:14px">Вставь <b style="color:var(--text)">Код синхронизации</b> с основного устройства.<br>Все данные будут загружены — полный доступ как на компьютере.</div>'
+   +'<div class="fgrp" style="margin-bottom:14px"><label>Код синхронизации</label>'
+   +'<textarea id="sync-code-inp" placeholder="Вставь код синхронизации здесь..." style="min-height:80px;font-family:\'JetBrains Mono\',monospace;font-size:11px;word-break:break-all"></textarea></div>'
+   +'<div class="m-foot"><button class="btn btn-g" onclick="hideM()">Отмена</button>'
+   +'<button class="btn btn-p" id="restore-btn" onclick="doRestoreFromCode()">⬇️ Восстановить данные</button></div>');
+}
+
+async function doRestoreFromCode(){
+  const raw=document.getElementById('sync-code-inp').value.trim();
+  if(!raw){toast('Вставь код!','err');return;}
+  try{
+    const decoded=atob(raw);const parts=decoded.split('|');
+    if(parts.length<2)throw new Error('Неверный формат кода');
+    const token=parts[0];const gistId=parts[1];
+    const btn=document.getElementById('restore-btn');
+    if(btn){btn.textContent='⏳ Загружаю...';btn.disabled=true;}
+    const r=await fetch('https://api.github.com/gists/'+gistId,{headers:{'Authorization':'token '+token}});
+    if(!r.ok){const e=await r.json();throw new Error(e.message||r.status);}
+    const j=await r.json();
+    const fileContent=j.files['nakhodka_full_backup.json']?.content;
+    if(!fileContent)throw new Error('Файл бэкапа не найден');
+    const d=JSON.parse(fileContent);
+    if(d.settings){save(K.settings,{...d.settings,githubToken:token,backupGistId:gistId});}
+    if(d.sales)save(K.sales,d.sales);
+    if(d.expenses)save(K.expenses,d.expenses);
+    if(d.batches)save(K.batches,d.batches);
+    if(d.plans)save(K.plans,d.plans);
+    if(d.inventory)save(K.inventory,d.inventory);
+    if(d.avito)save(K.avito,d.avito);
+    if(d.transfers)save(K.transfers,d.transfers);
+    hideM();toast('✅ Данные восстановлены! Все функции доступны.');render();
+  }catch(e){
+    toast('❌ Ошибка: '+e.message,'err',6000);
+    const btn=document.getElementById('restore-btn');
+    if(btn){btn.textContent='⬇️ Восстановить данные';btn.disabled=false;}
+  }
+}
+
 function saveCfg(){
   const cur=cfg();
   save(K.settings,{...cur,
@@ -4346,7 +4440,36 @@ async function publishToGist(){
       headers:{'Authorization':'token '+token,'Content-Type':'application/json'},
       body:JSON.stringify(body)
     });
-    if(!r.ok){const e=await r.json();throw new Error(e.message||r.status);}
+    if(!r.ok){
+      const e=await r.json();
+      const msg=e.message||r.status;
+      if(msg==='Bad credentials'||r.status===401){
+        // Token expired or invalid — show helpful dialog
+        showM(`<div class="m-hdr"><h2 style="color:var(--danger)">❌ Токен недействителен</h2><button class="m-x" onclick="hideM()">×</button></div>
+<div style="background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.3);border-radius:10px;padding:14px 16px;margin-bottom:14px;font-size:13px;color:var(--muted);line-height:1.8">
+  GitHub говорит: <b style="color:var(--danger)">Bad credentials</b><br>
+  Это значит что токен <b style="color:var(--text)">истёк или был удалён</b> на GitHub.
+</div>
+<div style="font-size:12px;color:var(--muted);line-height:2;margin-bottom:14px">
+  <b style="color:var(--text)">Создай новый токен за 2 минуты:</b><br>
+  1. Открой <a href="https://github.com/settings/tokens/new" target="_blank" style="color:#a855f7">github.com/settings/tokens/new</a><br>
+  2. Note: <code style="background:var(--border);padding:1px 5px;border-radius:3px">nakhodka</code><br>
+  3. Expiration: <code style="background:var(--border);padding:1px 5px;border-radius:3px;color:var(--success)">No expiration</code> ← важно!<br>
+  4. Отметь: <code style="background:var(--border);padding:1px 5px;border-radius:3px">✅ gist</code><br>
+  5. Нажми «Generate token» → скопируй → вставь ниже
+</div>
+<div class="fgrp" style="margin-bottom:14px">
+  <label>Новый токен</label>
+  <input type="password" id="new-token-inp" placeholder="ghp_xxxxxxxxxxxxxxxxxxxx" style="font-family:'JetBrains Mono',monospace;font-size:12px">
+</div>
+<div class="m-foot">
+  <button class="btn btn-g" onclick="hideM()">Отмена</button>
+  <button class="btn btn-p" onclick="const t=document.getElementById('new-token-inp').value.trim();if(!t){toast('Введи токен!','err');return;}save(K.settings,{...cfg(),githubToken:t});hideM();toast('✅ Токен обновлён! Нажми Опубликовать снова.');render();">💾 Сохранить и повторить</button>
+</div>`);
+        return;
+      }
+      throw new Error(msg);
+    }
     const j=await r.json();
     const newGistId=j.id;
 
@@ -4551,11 +4674,44 @@ if(!load(K.settings))save(K.settings,{...DEF});
     save(K.expenses,ee);
   }
 })();
+// ── New device detection ──
+function checkNewDevice(){
+  if(_viewMode)return;
+  const hasSales=sales().length>0;
+  const hasExpenses=exps().length>0;
+  const hasBatches=batches().length>0;
+  const hasToken=cfg().githubToken;
+  if(!hasSales&&!hasExpenses&&!hasBatches){
+    setTimeout(()=>{
+      const el=document.createElement('div');
+      el.id='new-device-banner';
+      el.style.cssText='position:fixed;bottom:24px;left:50%;transform:translateX(-50%);z-index:9998;background:var(--surface);border:1px solid var(--accent);border-radius:14px;padding:16px 20px;max-width:420px;width:calc(100vw - 40px);box-shadow:0 8px 32px rgba(0,0,0,.5)';
+      el.innerHTML=`
+        <div style="display:flex;align-items:flex-start;gap:12px">
+          <div style="font-size:28px">📱</div>
+          <div style="flex:1">
+            <div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:4px">Новое устройство?</div>
+            <div style="font-size:11px;color:var(--muted);line-height:1.6;margin-bottom:10px">Данных не найдено. Если у тебя есть Код синхронизации или JSON-бэкап — загрузи данные.</div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap">
+              <button onclick="document.getElementById('new-device-banner').remove();showRestoreDialog()"
+                style="background:var(--accent);color:#fff;border:none;border-radius:8px;padding:7px 14px;font-size:12px;font-weight:700;cursor:pointer;font-family:Montserrat,sans-serif">☁️ Восстановить из облака</button>
+              <button onclick="document.getElementById('new-device-banner').remove();document.getElementById('imp-f2')?.click()||nav('settings')"
+                style="background:var(--surface2);color:var(--muted);border:1px solid var(--border);border-radius:8px;padding:7px 12px;font-size:12px;cursor:pointer;font-family:Montserrat,sans-serif">📂 Импорт JSON</button>
+              <button onclick="document.getElementById('new-device-banner').remove()"
+                style="background:none;color:var(--muted);border:none;padding:7px 8px;font-size:12px;cursor:pointer;font-family:Montserrat,sans-serif">✕</button>
+            </div>
+          </div>
+        </div>`;
+      document.body.appendChild(el);
+    },2000);
+  }
+}
 if(_viewMode){
   initViewMode();
 }else{
   render();
   checkAutoBackup();
+  checkNewDevice();
 }
 </script>
 </body>
