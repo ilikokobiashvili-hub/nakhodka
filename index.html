@@ -4408,11 +4408,9 @@ function cfgData(){return _viewMode&&_gistData?(_gistData.settings||cfg()):cfg()
 // ── Fetch Gist data (for view mode) ──
 async function fetchGistData(gistId){
   try{
-    // Add timestamp to bypass browser cache and GitHub CDN cache
+    // Add timestamp to bypass browser cache (no extra headers — avoids CORS preflight)
     const ts=Date.now();
-    const r=await fetch('https://api.github.com/gists/'+gistId+'?_='+ts,{
-      headers:{'Cache-Control':'no-cache','Pragma':'no-cache'}
-    });
+    const r=await fetch('https://api.github.com/gists/'+gistId+'?_='+ts);
     if(!r.ok)throw new Error('Gist не найден ('+r.status+')');
     const j=await r.json();
     const fileKey=Object.keys(j.files)[0];
@@ -4458,7 +4456,7 @@ async function publishToGist(){
     const body={
       description:'НАХОДКА — данные магазина',
       public:true,
-      files:{'nakhodka_data.json':{content:JSON.stringify(data,null,2)}}
+      files:{'nakhodka_data.json':{content:JSON.stringify(data)}}
     };
 
     const existingGistId=s.gistId||'';
