@@ -4526,27 +4526,50 @@ function viewModeStyle(){
 // ── Init view mode ──
 async function initViewMode(){
   if(!_viewMode)return;
+  // ── Warn owner if they accidentally open view link in their own admin browser ──
+  const hasAdminData=sales().length>0||exps().length>0||batches().length>0;
+  const hasToken=!!(cfg().githubToken);
+  if(hasAdminData||hasToken){
+    document.getElementById('content').innerHTML=`
+<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:60vh;gap:16px;padding:24px">
+  <div style="font-size:40px">⚠️</div>
+  <div style="font-size:16px;font-weight:700;color:var(--text)">Это ссылка для партнёров</div>
+  <div style="font-size:13px;color:var(--muted);text-align:center;max-width:400px;line-height:1.7">
+    Ты открыл view-ссылку в своём браузере где есть admin-данные.<br>
+    <b style="color:var(--warning)">Нажимать «Продолжить» не рекомендуется</b> — это только для просмотра.<br>
+    Для работы с данными используй чистую ссылку без <code style="background:var(--surface2);padding:2px 6px;border-radius:4px">?gist=</code>
+  </div>
+  <div style="display:flex;gap:10px;flex-wrap:wrap;justify-content:center">
+    <button onclick="window.location.href=window.location.href.split('?')[0]"
+      style="background:var(--accent);color:#fff;border:none;border-radius:10px;padding:12px 20px;font-size:13px;font-weight:700;cursor:pointer;font-family:Montserrat,sans-serif">
+      🏠 Открыть мою версию
+    </button>
+    <button onclick="proceedViewMode()"
+      style="background:var(--surface2);color:var(--muted);border:1px solid var(--border);border-radius:10px;padding:12px 20px;font-size:13px;cursor:pointer;font-family:Montserrat,sans-serif">
+      👁 Всё равно просмотреть
+    </button>
+  </div>
+</div>`;
+    return;
+  }
+  await proceedViewMode();
+}
+
+async function proceedViewMode(){
   document.getElementById('content').innerHTML=`
 <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:60vh;gap:16px">
   <div style="font-size:40px">⏳</div>
   <div style="font-size:16px;font-weight:600;color:var(--text)">Загружаю данные...</div>
   <div style="font-size:12px;color:var(--muted)">Получаю актуальные данные от владельца</div>
 </div>`;
-  document.body.insertAdjacentHTML('afterbegin',viewModeBanner());
+  if(!document.getElementById('view-banner'))document.body.insertAdjacentHTML('afterbegin',viewModeBanner());
   document.getElementById('content').style.marginTop='44px';
   try{
     _gistData=await fetchGistData(_gistId);
-    // ── KEY FIX: write gist data into localStorage so ALL render functions work ──
-    if(_gistData.settings)save(K.settings,_gistData.settings);
-    if(_gistData.sales)save(K.sales,_gistData.sales);
-    // expenses are NOT loaded in view mode — partners must not have access
-    if(_gistData.batches)save(K.batches,_gistData.batches);
-    if(_gistData.plans)save(K.plans,_gistData.plans);
-    if(_gistData.inventory)save(K.inventory,_gistData.inventory);
-    if(_gistData.avito)save(K.avito,_gistData.avito);
-    // Remove github token from view mode settings for security
-    // Never delete githubToken — owner may open own link; only clear gistId to prevent confusion
-    const s=cfg();const ownerToken=s.githubToken;delete s.gistId;if(!ownerToken)delete s.githubToken;save(K.settings,s);
+    // ── IMPORTANT: do NOT write gist data into localStorage ──
+    // All data accessor functions (salesData, batchesData, etc.) already read
+    // from _gistData when _viewMode is true. Writing to localStorage would
+    // CORRUPT the admin's own data if they open the view link in their own browser.
     // Lock editing — hide all edit/delete/add buttons
     document.body.classList.add('is-view-mode');
     // Lock editing nav items
