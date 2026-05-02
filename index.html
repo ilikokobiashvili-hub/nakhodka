@@ -3580,31 +3580,48 @@ function saveGistToken(){
   toast('✅ Токен сохранён! Жми Опубликовать');render();
 }
 
-// ═══ SIMPLE SYNC — no GitHub needed ═══
+// ═══ SIMPLE SYNC — auto uses saved GitHub token ═══
 async function generateSyncCode(){
+  const s=cfg();const token=s.githubToken||'';
   const btn=document.getElementById('gen-sync-btn');
   if(btn){btn.textContent='⏳ Создаю код...';btn.disabled=true;}
   try{
-    const d={settings:cfg(),sales:sales(),expenses:exps(),batches:batches(),plans:plans(),inventory:inventory(),avito:avitoSales(),transfers:transfers(),backupDate:new Date().toISOString()};
-    // Upload to jsonbin.io — free, no auth, CORS enabled
-    const r=await fetch('https://api.jsonbin.io/v3/b',{
-      method:'POST',
-      headers:{'Content-Type':'application/json','X-Bin-Private':'false','X-Bin-Name':'nakhodka-sync'},
-      body:JSON.stringify(d)
-    });
-    if(!r.ok)throw new Error('Сервис недоступен, попробуй ещё раз');
-    const j=await r.json();
-    const binId=j.metadata.id;
-    // Show short code
-    showM('<div class="m-hdr"><h2>📱 Код для iPhone</h2><button class="m-x" onclick="hideM()">×</button></div>'
-     +'<div style="font-size:13px;color:var(--muted);line-height:1.7;margin-bottom:16px">Введи этот код на iPhone в разделе «Синхронизация».<br>Код действует <b style="color:var(--text)">7 дней</b>.</div>'
+    const d={settings:(()=>{const c={...cfg()};delete c.githubToken;delete c.gistId;delete c.syncGistId;return c;})(),
+      sales:sales(),expenses:exps(),batches:batches(),plans:plans(),
+      inventory:inventory(),avito:avitoSales(),transfers:transfers(),
+      syncDate:new Date().toISOString()};
+    const body={description:'НАХОДКА sync',public:true,
+      files:{'nakhodka_sync.json':{content:JSON.stringify(d)}}};
+    
+    let url='https://api.github.com/gists';
+    let method='POST';
+    const existingId=s.syncGistId||'';
+    if(existingId&&token){url='https://api.github.com/gists/'+existingId;method='PATCH';}
+    
+    let gistId=existingId;
+    if(token){
+      // Use GitHub if token available
+      const r=await fetch(url,{method,headers:{'Authorization':'token '+token,'Content-Type':'application/json'},body:JSON.stringify(body)});
+      if(!r.ok){const e=await r.json();throw new Error(e.message||r.status);}
+      const j=await r.json();
+      gistId=j.id;
+      save(K.settings,{...cfg(),syncGistId:gistId});
+    } else {
+      // Fallback: use npoint.io
+      const r=await fetch('https://api.npoint.io/',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(d)});
+      if(!r.ok)throw new Error('Нужен GitHub токен — добавь выше и повтори');
+      const j=await r.json();gistId=j.id;
+    }
+    
+    showM('<div class="m-hdr"><h2>✅ Код создан!</h2><button class="m-x" onclick="hideM()">×</button></div>'
+     +'<div style="font-size:13px;color:var(--muted);line-height:1.7;margin-bottom:16px">Введи этот код на iPhone в разделе Настройки → «🔑 Ввести код»</div>'
      +'<div style="background:var(--surface2);border:2px solid var(--accent);border-radius:12px;padding:20px;text-align:center;margin-bottom:16px">'
      +'<div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:10px">Код синхронизации</div>'
-     +'<div style="font-family:\'JetBrains Mono\',monospace;font-size:16px;color:var(--accent);letter-spacing:2px;word-break:break-all" id="sync-bin-id">'+binId+'</div>'
+     +'<div style="font-family:\'JetBrains Mono\',monospace;font-size:14px;color:var(--accent);letter-spacing:1px;word-break:break-all;line-height:1.6" id="sync-code-show">'+gistId+'</div>'
      +'</div>'
-     +'<div style="font-size:11px;color:var(--muted);margin-bottom:16px">📱 На iPhone: Настройки → «Ввести код синхронизации» → вставь код → «Загрузить»</div>'
+     +'<div style="font-size:11px;color:var(--muted);margin-bottom:16px">📱 На iPhone: Настройки → «🔑 Ввести код» → вставь → «Загрузить»</div>'
      +'<div class="m-foot"><button class="btn btn-g" onclick="hideM()">Закрыть</button>'
-     +'<button class="btn btn-p" onclick="navigator.clipboard.writeText(document.getElementById(\'sync-bin-id\').textContent).then(()=>{this.textContent=\'✅ Скопировано!\'})">📋 Копировать код</button></div>');
+     +'<button class="btn btn-p" onclick="navigator.clipboard.writeText(document.getElementById(\'sync-code-show\').textContent).then(()=>{this.textContent=\'✅ Скопировано!\'})">📋 Скопировать</button></div>');
   }catch(e){
     toast('❌ '+e.message,'err',5000);
   }finally{
@@ -3614,9 +3631,9 @@ async function generateSyncCode(){
 
 function showRestoreDialog(){
   showM('<div class="m-hdr"><h2>📱 Ввести код синхронизации</h2><button class="m-x" onclick="hideM()">×</button></div>'
-   +'<div style="font-size:13px;color:var(--muted);line-height:1.7;margin-bottom:16px">Введи код который ты получил на компьютере.<br>Все данные загрузятся автоматически.</div>'
+   +'<div style="font-size:13px;color:var(--muted);line-height:1.7;margin-bottom:16px">Введи код который ты получил на компьютере.</div>'
    +'<div class="fgrp" style="margin-bottom:16px"><label>Код синхронизации</label>'
-   +'<input id="sync-code-inp" placeholder="Вставь код сюда..." style="font-family:\'JetBrains Mono\',monospace;font-size:13px;letter-spacing:1px"></div>'
+   +'<input id="sync-code-inp" placeholder="Вставь код сюда..." style="font-family:\'JetBrains Mono\',monospace;font-size:13px"></div>'
    +'<div class="m-foot"><button class="btn btn-g" onclick="hideM()">Отмена</button>'
    +'<button class="btn btn-p" id="restore-btn" onclick="doRestoreFromCode()">⬇️ Загрузить данные</button></div>');
 }
@@ -3627,12 +3644,22 @@ async function doRestoreFromCode(){
   const btn=document.getElementById('restore-btn');
   if(btn){btn.textContent='⏳ Загружаю...';btn.disabled=true;}
   try{
-    const r=await fetch('https://api.jsonbin.io/v3/b/'+raw+'/latest');
-    if(!r.ok)throw new Error('Код не найден или устарел');
-    const j=await r.json();
-    const d=j.record;
-    if(!d||(!d.sales&&!d.batches))throw new Error('Данные не найдены в коде');
-    if(d.settings){const cur=cfg();save(K.settings,{...d.settings,githubToken:cur.githubToken||d.settings.githubToken});}
+    // Try GitHub Gist first (public, no auth needed to read)
+    let d=null;
+    const r=await fetch('https://api.github.com/gists/'+raw);
+    if(r.ok){
+      const j=await r.json();
+      const content=j.files['nakhodka_sync.json']?.content;
+      if(content)d=JSON.parse(content);
+    }
+    if(!d){
+      // Try npoint.io fallback
+      const r2=await fetch('https://api.npoint.io/'+raw);
+      if(r2.ok){const j2=await r2.json();if(j2.sales||j2.batches)d=j2;}
+    }
+    if(!d)throw new Error('Код не найден — создай новый на компьютере');
+    const cur=cfg();
+    if(d.settings)save(K.settings,{...d.settings,githubToken:cur.githubToken||''});
     if(d.sales)save(K.sales,d.sales);
     if(d.expenses)save(K.expenses,d.expenses);
     if(d.batches)save(K.batches,d.batches);
@@ -3640,7 +3667,7 @@ async function doRestoreFromCode(){
     if(d.inventory)save(K.inventory,d.inventory);
     if(d.avito)save(K.avito,d.avito);
     if(d.transfers)save(K.transfers,d.transfers);
-    hideM();toast('✅ Данные загружены! Все функции доступны.');render();
+    hideM();toast('✅ Данные загружены! '+( d.sales?.length||0)+' продаж восстановлено.');render();
   }catch(e){
     toast('❌ '+e.message,'err',5000);
     if(btn){btn.textContent='⬇️ Загрузить данные';btn.disabled=false;}
