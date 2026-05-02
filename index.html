@@ -3646,7 +3646,8 @@ async function doRestoreFromCode(){
   try{
     // Try GitHub Gist first (public, no auth needed to read)
     let d=null;
-    const r=await fetch('https://api.github.com/gists/'+raw);
+    const ts=Date.now();
+    const r=await fetch('https://api.github.com/gists/'+raw+'?_='+ts,{headers:{'Cache-Control':'no-cache'}});
     if(r.ok){
       const j=await r.json();
       const content=j.files['nakhodka_sync.json']?.content;
@@ -4407,11 +4408,21 @@ function cfgData(){return _viewMode&&_gistData?(_gistData.settings||cfg()):cfg()
 // ── Fetch Gist data (for view mode) ──
 async function fetchGistData(gistId){
   try{
-    const r=await fetch('https://api.github.com/gists/'+gistId);
+    // Add timestamp to bypass browser cache and GitHub CDN cache
+    const ts=Date.now();
+    const r=await fetch('https://api.github.com/gists/'+gistId+'?_='+ts,{
+      headers:{'Cache-Control':'no-cache','Pragma':'no-cache'}
+    });
     if(!r.ok)throw new Error('Gist не найден ('+r.status+')');
     const j=await r.json();
     const fileKey=Object.keys(j.files)[0];
-    const content=j.files[fileKey].content;
+    const file=j.files[fileKey];
+    // If file is truncated, fetch raw content
+    let content=file.content;
+    if(file.truncated&&file.raw_url){
+      const r2=await fetch(file.raw_url+'?_='+ts);
+      if(r2.ok)content=await r2.text();
+    }
     return JSON.parse(content);
   }catch(e){throw new Error('Ошибка загрузки данных: '+e.message);}
 }
@@ -4533,6 +4544,7 @@ function viewModeBanner(){
   <div style="display:flex;align-items:center;gap:10px">
     <span style="background:rgba(168,85,247,.2);border:1px solid #a855f7;border-radius:20px;padding:3px 12px;font-size:11px;font-weight:700;color:#a855f7;letter-spacing:.8px">👁 РЕЖИМ ПРОСМОТРА</span>
     <span class="vb-detail" style="font-size:12px;color:var(--muted)">Обновлено: ${pub}</span>
+    <button onclick="location.reload()" style="background:rgba(168,85,247,.15);border:1px solid #a855f7;border-radius:6px;padding:3px 10px;font-size:11px;font-weight:600;color:#a855f7;cursor:pointer;font-family:Montserrat,sans-serif">🔄 Обновить</button>
   </div>
   <span class="vb-detail" style="font-size:11px;color:var(--muted)">Редактирование недоступно · Данные предоставлены владельцем</span>
 </div>`;
@@ -4660,14 +4672,14 @@ function toast(msg, type='ok', dur=3500){
 // ═══ DATA COUNTER SIDEBAR ═══
 function updateSbStats(){
   const el=document.getElementById('sb-stats');if(!el)return;
-  const ss=sales().length,ee=exps().length,bb=batches().length,aa=avitoSales().length;
-  const lastSale=sales().sort((a,b)=>b.date.localeCompare(a.date))[0];
+  const ss=salesData().length,ee=expsData().length,bb=batchesData().length,aa=(_viewMode&&_gistData?(_gistData.avito||[]):avitoSales()).length;
+  const lastSale=salesData().sort((a,b)=>b.date.localeCompare(a.date))[0];
   const lastDate=lastSale?'последняя: '+fd(lastSale.date):'нет данных';
   el.innerHTML=`
-    <div style="color:var(--text);font-weight:700;margin-bottom:4px">📦 В браузере:</div>
+    <div style="color:var(--text);font-weight:700;margin-bottom:4px">${_viewMode?'👁 Данные из Gist:':'📦 В браузере:'}</div>
     <div>💰 Продажи: <b style="color:var(--accent)">${ss}</b></div>
     ${aa>0?`<div>🛒 Авито: <b style="color:var(--info)">${aa}</b></div>`:''}
-    <div>💸 Расходы: <b style="color:var(--accent)">${ee}</b></div>
+    ${!_viewMode?`<div>💸 Расходы: <b style="color:var(--accent)">${ee}</b></div>`:''}
     <div>📦 Партии: <b style="color:var(--accent)">${bb}</b></div>
     <div style="margin-top:4px;color:var(--muted);font-size:10px">${lastDate}</div>`;
 }
