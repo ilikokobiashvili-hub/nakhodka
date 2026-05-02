@@ -514,10 +514,11 @@ function rDash(){
   // ── Сегодня ──
   const todayStr=today();
   const yd=new Date(Date.now()-86400000).toISOString().slice(0,10);
-  const todaySale=sales().find(x=>x.date===todayStr)||{};
-  const ydSale=sales().find(x=>x.date===yd)||{};
-  const todayAv=avitoSales().filter(x=>x.date===todayStr);
-  const ydAv=avitoSales().filter(x=>x.date===yd);
+  const _avData=_viewMode&&_gistData?(_gistData.avito||[]):avitoSales();
+  const todaySale=salesData().find(x=>x.date===todayStr)||{};
+  const ydSale=salesData().find(x=>x.date===yd)||{};
+  const todayAv=_avData.filter(x=>x.date===todayStr);
+  const ydAv=_avData.filter(x=>x.date===yd);
   const todayAvTotal=todayAv.reduce((a,x)=>a+(x.total||0),0);
   const ydAvTotal=ydAv.reduce((a,x)=>a+(x.total||0),0);
   const todayRev=(todaySale.nal||0)+(todaySale.beznal||0)+todayAvTotal;
@@ -534,7 +535,7 @@ function rDash(){
 
   // ── План текущего месяца ──
   const nowYm=todayStr.slice(0,7);
-  const planObj=plans().find(x=>x.ym===nowYm)||{};
+  const planObj=plansData().find(x=>x.ym===nowYm)||{};
   const planRev=planObj.planRevenue||0;
   const monthStart=nowYm+'-01';
   const monthCm=calcPeriod(monthStart,todayStr);
@@ -547,10 +548,10 @@ function rDash(){
   const neededPerDay=daysLeftMonth>0?Math.round(needed/daysLeftMonth):0;
 
   // ── Остаток товара ──
-  const totalUnits=batches().reduce((a,b)=>a+(b.units||0),0);
-  const soldUnits=sales().reduce((a,x)=>{const ts=tierSums(x);return a+(ts?ts.qty:0);},0);
+  const totalUnits=batchesData().reduce((a,b)=>a+(b.units||0),0);
+  const soldUnits=salesData().reduce((a,x)=>{const ts=tierSums(x);return a+(ts?ts.qty:0);},0);
   const stock=Math.max(0,totalUnits-soldUnits);
-  const nDaysSale=Math.max(1,new Set(sales().map(x=>x.date)).size);
+  const nDaysSale=Math.max(1,new Set(salesData().map(x=>x.date)).size);
   const dailyRate=soldUnits/nDaysSale;
   const daysStock=dailyRate>0?Math.round(stock/dailyRate):999;
   const stockPct=totalUnits>0?stock/totalUnits:0;
