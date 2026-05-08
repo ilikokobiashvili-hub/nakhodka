@@ -207,6 +207,7 @@ body.is-view-mode #gist-pub-btn{display:none!important}
     <div class="nav-item" data-p="sales"><span class="nav-icon">💰</span>Продажи</div>
     <div class="nav-item" data-p="expenses"><span class="nav-icon">💸</span>Расходы</div>
     <div class="nav-item" data-p="batches"><span class="nav-icon">📦</span>Партии</div>
+    <div class="nav-item" data-p="consign"><span class="nav-icon">🤝</span>Реализация</div>
   </div>
   <div class="nav-sec">
     <div class="nav-lbl">Аналитика</div>
@@ -249,9 +250,9 @@ body.is-view-mode #gist-pub-btn{display:none!important}
 
 <script>
 // ═══ STORAGE ═══
-const K={settings:'nk_settings',sales:'nk_sales',expenses:'nk_expenses',batches:'nk_batches',plans:'nk_plans',inventory:'nk_inventory',avito:'nk_avito',transfers:'nk_transfers'};
+const K={settings:'nk_settings',sales:'nk_sales',expenses:'nk_expenses',batches:'nk_batches',plans:'nk_plans',inventory:'nk_inventory',avito:'nk_avito',transfers:'nk_transfers',consignors:'nk_consignors',consignItems:'nk_consign_items',consignPayouts:'nk_consign_payouts'};
 const DEF={taxRate:.08,cashBalance:0,beznalBalance:0,storeName:'НАХОДКА',startDate:'2026-03-23',acquiringRate:0.0195};
-const CATS=['Товар/Палеты','Доставка','Аренда','Зарплата','Маркетинг','Прочее','Ремонт','Оборудование'];
+const CATS=['Товар/Палеты','Доставка','Аренда','Зарплата','Маркетинг','Прочее','Ремонт','Оборудование','Выплаты реализации'];
 const GOCAT=['Одежда женская','Одежда мужская','Одежда детская','Обувь','Аксессуары','Текстиль','Посуда','Игрушки','Электроника','Книги','Прочее'];
 const DEF_PRICE_CATS=[
   {key:'s',    label:'S',    price:149},
@@ -484,7 +485,7 @@ function dashRange(){
 
 function render(){
   const c=document.getElementById('content');
-  const pages={dashboard:rDash,sales:rSales,expenses:rExp,batches:rBatch,pnl:rPnL,cogs:rCogsPage,cashflow:rCash,dynamics:rDyn,planfact:rPF,planning:rPlanning,analysis:rAnalysis,settings:rSet,audit:rAudit};
+  const pages={dashboard:rDash,sales:rSales,expenses:rExp,batches:rBatch,pnl:rPnL,cogs:rCogsPage,cashflow:rCash,dynamics:rDyn,planfact:rPF,planning:rPlanning,analysis:rAnalysis,settings:rSet,audit:rAudit,consign:rConsign};
   c.innerHTML=(pages[page]||rDash)();
   execScripts(c);
   if(page==='analysis') requestAnimationFrame(()=>requestAnimationFrame(_initAnCharts));
@@ -2697,6 +2698,148 @@ function avSectionHtml(date, existingDeals){
   </div>`;
 }
 
+// ── CONSIGN HELPERS (qty-aware) ──
+function ciQty(i){return i.qty||1}
+function ciSoldHistory(i){
+  if(i.soldHistory)return i.soldHistory;
+  // backward compat: old single-item records
+  if(i.status==='sold')return[{date:i.soldDate||today(),qty:1,price:i.soldPrice||i.price}];
+  return[];
+}
+function ciSoldQty(i){return ciSoldHistory(i).reduce((a,h)=>a+(h.qty||0),0)}
+function ciRemaining(i){return Math.max(0,ciQty(i)-ciSoldQty(i))}
+function ciStatus(i){
+  if(i.status==='returned')return'returned';
+  const sq=ciSoldQty(i),q=ciQty(i);
+  if(sq>=q&&sq>0)return'sold';
+  if(sq>0)return'partial';
+  return'available';
+}
+function ciTodayQty(i,date){
+  return(ciSoldHistory(i).find(h=>h.date===date)?.qty)||0;
+}
+
+// ── CONSIGN SECTION in sales modal ──
+function consignSectionHtml(date, _unused){
+  const items=consignItems();
+  const crs=consignors();
+  // Show items that have remaining qty OR had sales on this date
+  const visible=items.filter(i=>{
+    if(i.status==='returned')return false;
+    return ciRemaining(i)>0||ciTodayQty(i,date)>0;
+  });
+  if(visible.length===0){
+    return`<div style="border:1px solid rgba(168,85,247,.25);border-radius:10px;overflow:hidden;margin-top:14px">
+      <div style="padding:10px 14px;background:rgba(168,85,247,.06);display:flex;justify-content:space-between;align-items:center">
+        <span style="font-size:13px;font-weight:600;color:#a855f7">🤝 Реализация за этот день</span>
+        <span style="font-size:11px;color:var(--muted)">нет доступных товаров</span>
+      </div>
+      <div style="padding:10px 14px;font-size:12px;color:var(--muted)">Все товары проданы или не добавлены. <span onclick="hideM();nav('consign')" style="color:#a855f7;cursor:pointer">Перейти в Реализацию →</span></div>
+    </div>`;
+  }
+  const rows=visible.map(i=>{
+    const cr=crs.find(c=>c.id===i.consignorId)||{name:'?'};
+    const remaining=ciRemaining(i);
+    const todayQty=ciTodayQty(i,date);
+    const maxQty=remaining+todayQty; // can't sell more than available+already sold today
+    const half=Math.round(i.price*0.5);
+    return`<div class="ci-sale-row" style="padding:9px 14px;border-bottom:1px solid rgba(255,255,255,.04)">
+      <div style="display:grid;grid-template-columns:1fr 80px 110px 95px;gap:8px;align-items:center">
+        <div>
+          <div style="font-size:12px;font-weight:600;color:var(--text)">${i.title}</div>
+          <div style="font-size:10px;color:var(--muted);margin-top:1px">${cr.name} · ярлык ${fr(i.price)}/шт · осталось <b style="color:${remaining>0?'var(--success)':'var(--warning)'}">${remaining} шт</b></div>
+        </div>
+        <div>
+          <div style="font-size:9px;font-weight:700;color:var(--muted);text-transform:uppercase;margin-bottom:3px">Продано</div>
+          <input type="number" class="ci-qty-input" data-id="${i.id}" data-price="${i.price}" data-max="${maxQty}"
+            value="${todayQty}" min="0" max="${maxQty}" placeholder="0"
+            oninput="updateConsignSoldTotal()"
+            style="width:100%;padding:5px 7px;font-size:13px;font-weight:700;border-radius:7px;background:var(--surface2);border:1px solid var(--border);color:#a855f7;font-family:'JetBrains Mono',monospace;outline:none;text-align:center">
+        </div>
+        <div>
+          <div style="font-size:9px;font-weight:700;color:var(--muted);text-transform:uppercase;margin-bottom:3px">Цена за шт (₽)</div>
+          <input type="number" class="ci-sold-price" data-id="${i.id}" value="${i.price}"
+            min="0" oninput="updateConsignSoldTotal()"
+            style="width:100%;padding:5px 7px;font-size:12px;border-radius:7px;background:var(--surface2);border:1px solid var(--border);color:var(--text);font-family:'Montserrat',sans-serif;outline:none">
+        </div>
+        <div class="ci-split-lbl" style="font-size:11px;color:var(--muted);text-align:right;line-height:1.6">
+          🏪 ${fr(half)}<br>👤 ${fr(half)}
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+  return`<div style="border:1px solid rgba(168,85,247,.3);border-radius:10px;overflow:hidden;margin-top:14px">
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 14px;background:rgba(168,85,247,.08);border-bottom:1px solid rgba(168,85,247,.2)">
+      <span style="font-size:13px;font-weight:600;color:#a855f7">🤝 Реализация за этот день</span>
+      <span style="font-size:11px;color:var(--muted)">введи кол-во проданных</span>
+    </div>
+    ${rows}
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 14px;background:rgba(168,85,247,.06);border-top:1px solid rgba(168,85,247,.15)">
+      <span style="font-size:11px;color:var(--muted)">Итого реализация · выручка</span>
+      <span id="ci-sold-total" style="font-size:13px;font-weight:700;color:#a855f7">—</span>
+    </div>
+  </div>`;
+}
+
+function updateConsignSoldTotal(){
+  let total=0;
+  document.querySelectorAll('.ci-qty-input').forEach(inp=>{
+    const qty=+inp.value||0;
+    const row=inp.closest('.ci-sale-row');
+    const priceEl=row?.querySelector('.ci-sold-price');
+    const price=+(priceEl?.value)||+(inp.dataset.price)||0;
+    const lineTotal=qty*price;
+    total+=lineTotal;
+    const half=Math.round(price*0.5);
+    const lbl=row?.querySelector('.ci-split-lbl');
+    if(lbl)lbl.innerHTML=qty>0
+      ?`🏪 <b style="color:var(--success)">${fr(qty*half)}</b><br>👤 <b style="color:var(--info)">${fr(qty*half)}</b>`
+      :`🏪 ${fr(half)}/шт<br>👤 ${fr(half)}/шт`;
+  });
+  const el=document.getElementById('ci-sold-total');
+  if(el)el.textContent=total>0?fr(total):'—';
+}
+
+// Returns array of {id, soldQty, soldPrice} for items with qty > 0
+function readConsignSoldItems(){
+  const result=[];
+  document.querySelectorAll('.ci-qty-input').forEach(inp=>{
+    const qty=+inp.value||0;
+    if(qty<=0)return;
+    const row=inp.closest('.ci-sale-row');
+    const priceEl=row?.querySelector('.ci-sold-price');
+    const soldPrice=+(priceEl?.value)||+(inp.dataset.price)||0;
+    result.push({id:inp.dataset.id,soldQty:qty,soldPrice});
+  });
+  return result;
+}
+
+// Apply qty-based consign sales: update soldHistory for this date
+function applyConsignSoldItems(soldItems, date, allVisibleIds){
+  const soldMap={};soldItems.forEach(s=>{soldMap[s.id]=s;});
+  const visSet=new Set(allVisibleIds||soldItems.map(s=>s.id));
+  if(!visSet.size)return;
+  save(K.consignItems,consignItems().map(i=>{
+    if(!visSet.has(i.id))return i;
+    // Remove today's existing entry from history
+    const history=(i.soldHistory||ciSoldHistory(i)).filter(h=>h.date!==date);
+    if(soldMap[i.id]&&soldMap[i.id].soldQty>0){
+      // Add today's entry
+      const newHistory=[...history,{date,qty:soldMap[i.id].soldQty,price:soldMap[i.id].soldPrice}];
+      const newSoldQty=newHistory.reduce((a,h)=>a+(h.qty||0),0);
+      const q=ciQty(i);
+      return{...i,soldHistory:newHistory,soldQty:newSoldQty,
+        status:newSoldQty>=q?'sold':newSoldQty>0?'partial':'available'};
+    } else {
+      // Zero entered → remove today's sales
+      const newSoldQty=history.reduce((a,h)=>a+(h.qty||0),0);
+      const q=ciQty(i);
+      return{...i,soldHistory:history,soldQty:newSoldQty,
+        status:newSoldQty>=q?'sold':newSoldQty>0?'partial':'available'};
+    }
+  }));
+}
+
 function addUnifiedAvRow(){
   const wrap=document.getElementById('unified-av-rows');
   if(!wrap)return;
@@ -2732,6 +2875,8 @@ function readUnifiedAvRows(date){
 function oEditSale(id){
   const x=sales().find(s=>s.id===id);if(!x)return;
   const existingAv=avitoSales().filter(a=>a.date===x.date);
+  // Find consign items already sold on this date (to pre-check)
+  const soldOnDate=consignItems().filter(i=>i.status==='sold'&&i.soldDate===x.date).map(i=>i.id);
   showM(`
 <div class="m-hdr"><h2>✏️ Продажи за ${fd(x.date)}</h2><button class="m-x" onclick="hideM()">×</button></div>
 <div style="background:var(--surface2);border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.8px">💰 Касса / Эвотор</div>
@@ -2745,6 +2890,7 @@ function oEditSale(id){
   <div class="fgrp full">${tierFormHtml(x.priceCats)}</div>
 </div>
 ${avSectionHtml(x.date, existingAv)}
+<div id="ci-section-wrap">${consignSectionHtml(x.date, soldOnDate)}</div>
 <div class="m-foot"><button class="btn btn-g" onclick="hideM()">Отмена</button><button class="btn btn-p" onclick="svEditSale('${id}')">💾 Сохранить всё</button></div>`)
 }
 function svEditSale(id){
@@ -2757,6 +2903,10 @@ function svEditSale(id){
   // Авито: заменяем все сделки за эту дату на новые из модалки
   const newAv=readUnifiedAvRows(d);
   save(K.avito,[...avitoSales().filter(x=>x.date!==d),...newAv]);
+  // Реализация: синхронизируем состояние чекбоксов
+  const soldConsign=readConsignSoldItems();
+  const visIds=Array.from(document.querySelectorAll('.ci-qty-input')).map(c=>c.dataset.id);
+  if(visIds.length>0)applyConsignSoldItems(soldConsign,d,visIds);
   hideM();render();
 }
 
@@ -3355,7 +3505,7 @@ function oAddSale(){showM(`
 <div class="m-hdr"><h2>Новая запись продаж</h2><button class="m-x" onclick="hideM()">×</button></div>
 <div style="background:var(--surface2);border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.8px">💰 Касса / Эвотор</div>
 <div class="fg">
-  <div class="fgrp full"><label>Дата</label><input type="date" id="fd" value="${today()}"></div>
+  <div class="fgrp full"><label>Дата</label><input type="date" id="fd" value="${today()}" onchange="reloadConsignSection(this.value)"></div>
   <div class="fgrp"><label>НАЛ (₽)</label><input type="number" id="fn" placeholder="0" min="0" oninput="updateUnifiedTotals()"></div>
   <div class="fgrp"><label>БЕЗНАЛ (₽)</label><input type="number" id="fb" placeholder="0" min="0" oninput="updateUnifiedTotals()"></div>
   <div class="fgrp"><label>Чеки НАЛ (шт)</label><input type="number" id="fnc" placeholder="0" min="0"></div>
@@ -3364,7 +3514,13 @@ function oAddSale(){showM(`
   <div class="fgrp full">${tierFormHtml(null)}</div>
 </div>
 ${avSectionHtml(today(), [])}
+<div id="ci-section-wrap">${consignSectionHtml(today(), [])}</div>
 <div class="m-foot"><button class="btn btn-g" onclick="hideM()">Отмена</button><button class="btn btn-p" onclick="svSale()">💾 Сохранить всё</button></div>`)}
+
+function reloadConsignSection(date){
+  const wrap=document.getElementById('ci-section-wrap');
+  if(wrap)wrap.innerHTML=consignSectionHtml(date,[]);
+}
 
 function svSale(){
   const d=document.getElementById('fd').value;if(!d){toast('Укажи дату','err');return}
@@ -3376,6 +3532,13 @@ function svSale(){
   // Авито: добавляем сделки за эту дату
   const newAv=readUnifiedAvRows(d);
   if(newAv.length>0)save(K.avito,[...avitoSales().filter(x=>x.date!==d),...newAv]);
+  // Реализация: отмечаем проданные товары
+  const soldConsign=readConsignSoldItems();
+  const visIds=Array.from(document.querySelectorAll('.ci-qty-input')).map(c=>c.dataset.id);
+  if(visIds.length>0){
+    applyConsignSoldItems(soldConsign,d,visIds);
+    if(soldConsign.length>0)toast(`✅ Сохранено + ${soldConsign.length} позиций реализации`,'ok',3000);
+  }
   hideM();render();
 }
 function delSale(id){if(!confirm('Удалить запись?'))return;save(K.sales,sales().filter(x=>x.id!==id));render()}
@@ -3818,7 +3981,7 @@ function svPlans(){
 }
 
 function expData(){
-  const d={settings:cfg(),sales:sales(),expenses:exps(),batches:batches(),plans:plans(),inventory:inventory(),avito:avitoSales(),transfers:transfers(),exportDate:new Date().toISOString()};
+  const d={settings:cfg(),sales:sales(),expenses:exps(),batches:batches(),plans:plans(),inventory:inventory(),avito:avitoSales(),transfers:transfers(),consignors:consignors(),consignItems:consignItems(),consignPayouts:consignPayouts(),exportDate:new Date().toISOString()};
   const blob=new Blob([JSON.stringify(d,null,2)],{type:'application/json'});
   const url=URL.createObjectURL(blob),a=document.createElement('a');
   a.href=url;a.download=`nakhodka_backup_${today()}.json`;a.click();URL.revokeObjectURL(url);
@@ -3843,6 +4006,9 @@ function impData(input){
     if(d.inventory)save(K.inventory,d.inventory);
     if(d.avito)save(K.avito,d.avito);
     if(d.transfers)save(K.transfers,d.transfers);
+    if(d.consignors)save(K.consignors,d.consignors);
+    if(d.consignItems)save(K.consignItems,d.consignItems);
+    if(d.consignPayouts)save(K.consignPayouts,d.consignPayouts);
     toast('✅ Данные импортированы');render();
   }catch(err){toast('❌ Ошибка импорта: '+err.message,'err',5000)}};
   r.readAsText(file);input.value='';
@@ -4717,6 +4883,604 @@ function checkAutoBackup(){
 }
 
 // Sidebar stats updated via render() directly
+
+// ═══════════════════════════════════════════════════════
+// ═══ РЕАЛИЗАЦИЯ (КОНСИГНАЦИЯ) ═══
+// ═══════════════════════════════════════════════════════
+function consignors(){return load(K.consignors)||[]}
+function consignItems(){return load(K.consignItems)||[]}
+function consignPayouts(){return load(K.consignPayouts)||[]}
+function getConsignor(id){return consignors().find(c=>c.id===id)}
+
+// Qty-aware owed calculation
+function calcConsignOwed(){
+  const items=consignItems();
+  const payouts=consignPayouts();
+  // Paid qty per item across all payouts (supports both old and new format)
+  const paidQtyMap={};
+  payouts.forEach(p=>{
+    if(p.items&&p.items.length){
+      p.items.forEach(pi=>{paidQtyMap[pi.itemId]=(paidQtyMap[pi.itemId]||0)+(pi.qtyPaid||0);});
+    } else {
+      // backward compat: old payouts had itemIds array (1 unit each)
+      (p.itemIds||[]).forEach(id=>{paidQtyMap[id]=(paidQtyMap[id]||0)+1;});
+    }
+  });
+  const byConsignor={};
+  items.forEach(i=>{
+    if(i.status==='returned')return;
+    const soldQty=ciSoldQty(i);
+    const paidQty=paidQtyMap[i.id]||0;
+    const unpaidQty=soldQty-paidQty;
+    if(unpaidQty<=0)return;
+    if(!byConsignor[i.consignorId])byConsignor[i.consignorId]={items:[],total:0};
+    byConsignor[i.consignorId].items.push({...i,unpaidQty});
+    byConsignor[i.consignorId].total+=Math.round(i.price*0.5*unpaidQty);
+  });
+  return byConsignor;
+}
+
+let consignTab='payouts';
+
+function rConsign(){
+  const crs=consignors(),items=consignItems(),payouts=consignPayouts();
+  const owed=calcConsignOwed();
+  const totalItems=items.length;
+  const availableItems=items.filter(i=>ciStatus(i)==='available').length;
+  const partialItems=items.filter(i=>ciStatus(i)==='partial').length;
+
+  // Sold unpaid count (by unit)
+  const paidQtyMap={};
+  payouts.forEach(p=>{
+    if(p.items&&p.items.length)p.items.forEach(pi=>{paidQtyMap[pi.itemId]=(paidQtyMap[pi.itemId]||0)+(pi.qtyPaid||0);});
+    else(p.itemIds||[]).forEach(id=>{paidQtyMap[id]=(paidQtyMap[id]||0)+1;});
+  });
+  let soldUnpaidUnits=0;
+  items.forEach(i=>{const u=ciSoldQty(i)-(paidQtyMap[i.id]||0);if(u>0)soldUnpaidUnits+=u;});
+  const totalOwed=Object.values(owed).reduce((a,v)=>a+v.total,0);
+
+  // This week stats
+  const now=new Date();const day=now.getDay()||7;
+  const monDate=new Date(now);monDate.setDate(now.getDate()-day+1);
+  const wb={start:monDate.toISOString().slice(0,10),end:today()};
+  let weekUnits=0,weekRev=0;
+  items.forEach(i=>{
+    ciSoldHistory(i).forEach(h=>{
+      if(h.date>=wb.start&&h.date<=wb.end){weekUnits+=h.qty||0;weekRev+=(h.qty||0)*(h.price||i.price||0);}
+    });
+  });
+
+  const tabBtn=(id,lbl)=>`<button onclick="consignTab='${id}';render()" style="padding:7px 16px;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;font-family:'Montserrat',sans-serif;border:1px solid ${consignTab===id?'var(--accent)':'var(--border)'};background:${consignTab===id?'var(--accent)':'var(--surface2)'};color:${consignTab===id?'#fff':'var(--muted)'}">${lbl}</button>`;
+
+  let content='';
+  if(consignTab==='payouts')content=rConsignPayoutsTab(owed,items,payouts);
+  else if(consignTab==='items')content=rConsignItemsTab(items,crs,payouts);
+  else content=rConsignorsTab(crs,items,payouts);
+
+  return`
+<div class="page-hdr">
+  <div><div class="page-title">🤝 Реализация</div><div class="page-sub">Товары на консигнации · 50/50 с магазином</div></div>
+  <button class="btn btn-p" onclick="oAddConsignItem()">+ Добавить товар</button>
+</div>
+
+${totalOwed>0?`<div style="background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.35);border-radius:12px;padding:14px 18px;margin-bottom:18px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">
+  <div>
+    <div style="font-weight:700;color:var(--danger);font-size:14px">💸 Есть незакрытые выплаты сдатчикам</div>
+    <div style="font-size:12px;color:var(--muted);margin-top:3px">${Object.keys(owed).length} чел. · ${soldUnpaidUnits} шт не выплачено</div>
+  </div>
+  <div style="font-family:'JetBrains Mono',monospace;font-size:24px;font-weight:700;color:var(--danger)">${fr(totalOwed)}</div>
+</div>`:''}
+
+<div class="kpi-grid" style="margin-bottom:20px">
+  <div class="kpi"><div class="kpi-lbl">Сдатчиков</div><div class="kpi-val">${crs.length}</div></div>
+  <div class="kpi"><div class="kpi-lbl">Позиций всего</div><div class="kpi-val">${totalItems}</div></div>
+  <div class="kpi"><div class="kpi-lbl">Доступно / Частично</div><div class="kpi-val ok">${availableItems}${partialItems>0?` <span style="color:var(--warning);font-size:13px">+ ${partialItems}</span>`:''}</div></div>
+  <div class="kpi"><div class="kpi-lbl">Ед. не выплачено</div><div class="kpi-val ${soldUnpaidUnits>0?'accent':''}">${soldUnpaidUnits}</div></div>
+  <div class="kpi"><div class="kpi-lbl">К выплате</div><div class="kpi-val ${totalOwed>0?'bad':''}">${fr(totalOwed)}</div></div>
+  <div class="kpi"><div class="kpi-lbl">Продано за неделю</div><div class="kpi-val accent">${weekUnits} шт · ${fr(weekRev)}</div></div>
+</div>
+
+<div style="display:flex;gap:8px;margin-bottom:20px;flex-wrap:wrap;align-items:center">
+  ${tabBtn('payouts','💰 Выплаты')}
+  ${tabBtn('items','📦 Товары')}
+  ${tabBtn('consignors','👤 Сдатчики')}
+  <button class="btn btn-g btn-sm" style="margin-left:auto" onclick="oAddConsignor()">+ Новый сдатчик</button>
+</div>
+
+${content}`;
+}
+
+function rConsignPayoutsTab(owed,allItems,payouts){
+  const owedEntries=Object.entries(owed);
+  const recentPayouts=payouts.slice().sort((a,b)=>b.date.localeCompare(a.date)).slice(0,20);
+  if(owedEntries.length===0&&recentPayouts.length===0)
+    return`<div class="card"><div class="empty">🎉 Нет задолженностей перед сдатчиками</div></div>`;
+
+  let html='';
+  if(owedEntries.length>0){
+    html+=`<div class="card" style="margin-bottom:20px;border-color:rgba(239,68,68,.3)">
+      <div class="card-hdr" style="background:rgba(239,68,68,.06)">
+        <h3>💸 Нужно выплатить (${owedEntries.length} сдатчик${owedEntries.length>1?'а':''})</h3>
+        <span style="font-size:12px;color:var(--muted)">Нажми «Выплатить» когда рассчитался</span>
+      </div>`;
+    owedEntries.forEach(([cid,data])=>{
+      const cr=getConsignor(cid)||{name:'Неизвестный'};
+      const storeShare=data.total; // same as consignor share
+      html+=`<div style="padding:14px 18px;border-bottom:1px solid var(--border)">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:8px">
+          <div>
+            <div style="font-size:15px;font-weight:700">${cr.name}</div>
+            ${cr.phone?`<div style="font-size:11px;color:var(--muted)">${cr.phone}</div>`:''}
+          </div>
+          <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+            <div style="text-align:right">
+              <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;margin-bottom:2px">Выплатить сдатчику</div>
+              <div style="font-family:'JetBrains Mono',monospace;font-size:22px;font-weight:700;color:var(--danger)">${fr(data.total)}</div>
+              <div style="font-size:10px;color:var(--muted)">магазину тоже ${fr(storeShare)}</div>
+            </div>
+            <button class="btn btn-p" onclick="oPayConsignor('${cid}')" style="white-space:nowrap;background:var(--success)">✅ Выплатить</button>
+          </div>
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px">
+          ${data.items.map(i=>{
+            const uq=i.unpaidQty||1;
+            const half=Math.round(i.price*0.5);
+            return`<div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:7px 11px">
+              <div style="font-size:12px;font-weight:600;color:var(--text)">${i.title} <span style="color:#a855f7;font-family:'JetBrains Mono',monospace">×${uq}</span></div>
+              <div style="font-size:11px;color:var(--muted);margin-top:2px;display:flex;gap:8px;flex-wrap:wrap">
+                <span>Цена ${fr(i.price)}/шт</span>
+                <span style="color:var(--success)">🏪 +${fr(half*uq)} магазину</span>
+                <span style="color:var(--info)">👤 +${fr(half*uq)} сдатчику</span>
+              </div>
+            </div>`;
+          }).join('')}
+        </div>
+      </div>`;
+    });
+    html+=`</div>`;
+  }
+
+  if(recentPayouts.length>0){
+    html+=`<div class="card">
+      <div class="card-hdr"><h3>✅ История выплат</h3><span style="font-size:12px;color:var(--muted)">${recentPayouts.length} записей</span></div>
+      <div class="tbl-wrap"><table><thead><tr>
+        <th>Дата</th><th>Сдатчик</th><th class="r">Сумма</th><th>Оплата</th><th class="r">Позиций</th><th>Период</th><th>Примечание</th><th class="sticky-r"></th>
+      </tr></thead>
+      <tbody>${recentPayouts.map(p=>{
+        const cr=getConsignor(p.consignorId)||{name:'—'};
+        const nItems=p.items?p.items.length:(p.itemIds||[]).length;
+        const ptBadge=p.payType==='beznal'
+          ?`<span class="badge b-info" style="font-size:10px">💳 Безнал</span>`
+          :`<span class="badge b-ok" style="font-size:10px">💵 Нал</span>`;
+        return`<tr>
+          <td>${fd(p.date)}</td>
+          <td style="font-weight:600">${cr.name}</td>
+          <td class="r ok" style="font-family:'JetBrains Mono',monospace;font-weight:700">${fr(p.amount)}</td>
+          <td>${ptBadge}</td>
+          <td class="r dim">${nItems}</td>
+          <td class="dim" style="font-size:11px">${p.weekStart&&p.weekEnd?fd(p.weekStart)+' — '+fd(p.weekEnd):p.weekStart?fd(p.weekStart):'—'}</td>
+          <td class="dim" style="font-size:11px">${p.note||'—'}</td>
+          <td class="sticky-r"><button class="btn-d" onclick="delConsignPayout('${p.id}')">✕</button></td></tr>`;
+      }).join('')}
+      </tbody></table></div>
+    </div>`;
+  }
+  return html;
+}
+
+function rConsignItemsTab(items,crs,payouts){
+  const paidQtyMap={};
+  payouts.forEach(p=>{
+    if(p.items&&p.items.length)p.items.forEach(pi=>{paidQtyMap[pi.itemId]=(paidQtyMap[pi.itemId]||0)+(pi.qtyPaid||0);});
+    else(p.itemIds||[]).forEach(id=>{paidQtyMap[id]=(paidQtyMap[id]||0)+1;});
+  });
+  const sorted=items.slice().sort((a,b)=>{
+    const stOrder={available:0,partial:1,sold:2,returned:3};
+    const ao=stOrder[ciStatus(a)]||0,bo=stOrder[ciStatus(b)]||0;
+    if(ao!==bo)return ao-bo;
+    return(b.addedDate||'').localeCompare(a.addedDate||'');
+  });
+  const statusBadge=i=>{
+    const st=ciStatus(i);
+    const sq=ciSoldQty(i),q=ciQty(i),r=ciRemaining(i);
+    if(st==='available')return`<span class="badge b-ok">✅ ${q>1?`0/${q} шт`:'Доступен'}</span>`;
+    if(st==='returned')return`<span class="badge b-dim">↩ Возвращён</span>`;
+    const pq=paidQtyMap[i.id]||0;
+    const unpaid=sq-pq;
+    if(st==='partial')return`<span class="badge b-warn">⏳ ${sq}/${q} шт · ${r} ост.</span>`;
+    if(unpaid>0)return`<span class="badge b-warn">⏳ ${sq}/${q} · ждёт выплаты</span>`;
+    return`<span class="badge b-info">💳 ${sq}/${q} выплачено</span>`;
+  };
+  if(sorted.length===0)return`<div class="card"><div class="empty">Нет товаров. Нажми «+ Добавить товар»</div></div>`;
+  return`<div class="card">
+    <div class="tbl-wrap"><table><thead><tr>
+      <th>Сдатчик</th><th>Товар</th><th class="r">Цена/шт</th><th class="r">Кол-во</th><th>Статус</th><th class="r">Продано</th><th class="r">Осталось</th><th>Принят</th><th class="sticky-r"></th>
+    </tr></thead>
+    <tbody>${sorted.map(i=>{
+      const cr=crs.find(c=>c.id===i.consignorId)||{name:'—'};
+      const q=ciQty(i),sq=ciSoldQty(i),r=ciRemaining(i);
+      const st=ciStatus(i);
+      return`<tr>
+        <td style="font-weight:600;white-space:nowrap">${cr.name}</td>
+        <td><div style="font-weight:500">${i.title||'—'}</div>${i.description?`<div style="font-size:10px;color:var(--muted)">${i.description}</div>`:''}</td>
+        <td class="r" style="font-family:'JetBrains Mono',monospace">${fr(i.price)}</td>
+        <td class="r" style="font-family:'JetBrains Mono',monospace;font-weight:700;color:#a855f7">${q}</td>
+        <td style="white-space:nowrap">${statusBadge(i)}</td>
+        <td class="r ${sq>0?'ok':''}" style="font-family:'JetBrains Mono',monospace">${sq>0?sq:'—'}</td>
+        <td class="r ${r>0?'':'dim'}" style="font-family:'JetBrains Mono',monospace">${r>0?r:'—'}</td>
+        <td class="dim" style="font-size:11px">${fd(i.addedDate)}</td>
+        <td class="sticky-r"><div class="row-acts">
+          ${st==='available'||st==='partial'?`<button class="btn-e" style="background:rgba(34,197,94,.15);color:var(--success);border:1px solid rgba(34,197,94,.4)" onclick="oMarkSold('${i.id}')">✅ Продан</button>`:''}
+          <button class="btn-e" onclick="oEditConsignItem('${i.id}')">✏️</button>
+          <button class="btn-d" onclick="delConsignItem('${i.id}')">✕</button>
+        </div></td></tr>`;
+    }).join('')}
+    </tbody></table></div>
+  </div>`;
+}
+
+function rConsignorsTab(crs,allItems,payouts){
+  const paidQtyMap={};
+  payouts.forEach(p=>{
+    if(p.items&&p.items.length)p.items.forEach(pi=>{paidQtyMap[pi.itemId]=(paidQtyMap[pi.itemId]||0)+(pi.qtyPaid||0);});
+    else(p.itemIds||[]).forEach(id=>{paidQtyMap[id]=(paidQtyMap[id]||0)+1;});
+  });
+  if(crs.length===0)return`<div class="card"><div class="empty">Нет сдатчиков. Нажми «+ Новый сдатчик»</div></div>`;
+  return`<div class="card">
+    <div class="tbl-wrap"><table><thead><tr>
+      <th>Имя</th><th>Телефон</th><th class="r">Позиций</th><th class="r">Доступно</th><th class="r">Продано ед.</th><th class="r">К выплате</th><th class="sticky-r"></th>
+    </tr></thead>
+    <tbody>${crs.map(cr=>{
+      const its=allItems.filter(i=>i.consignorId===cr.id);
+      const availQty=its.reduce((a,i)=>a+ciRemaining(i),0);
+      const soldQtyTotal=its.reduce((a,i)=>a+ciSoldQty(i),0);
+      const paidQtyTotal=its.reduce((a,i)=>a+(paidQtyMap[i.id]||0),0);
+      const unpaid=soldQtyTotal-paidQtyTotal;
+      const owed=its.reduce((a,i)=>{
+        const uq=Math.max(0,ciSoldQty(i)-(paidQtyMap[i.id]||0));
+        return a+Math.round(i.price*0.5*uq);
+      },0);
+      return`<tr>
+        <td style="font-weight:700">${cr.name}</td>
+        <td class="dim">${cr.phone||'—'}</td>
+        <td class="r">${its.length}</td>
+        <td class="r ok" style="font-family:'JetBrains Mono',monospace">${availQty}</td>
+        <td class="r" style="font-family:'JetBrains Mono',monospace">${soldQtyTotal}</td>
+        <td class="r ${owed>0?'bad':''}" style="font-family:'JetBrains Mono',monospace;font-weight:700">${owed>0?fr(owed):'—'}</td>
+        <td class="sticky-r"><div class="row-acts">
+          ${owed>0?`<button class="btn-e" style="background:rgba(34,197,94,.12);color:var(--success);border:1px solid rgba(34,197,94,.3)" onclick="oPayConsignor('${cr.id}')">💰 Выплатить</button>`:''}
+          <button class="btn-e" onclick="oEditConsignor('${cr.id}')">✏️</button>
+          <button class="btn-d" onclick="delConsignor('${cr.id}')">✕</button>
+        </div></td></tr>`;
+    }).join('')}
+    </tbody></table></div>
+  </div>`;
+}
+
+// ── Modals: Сдатчики ──
+function oAddConsignor(){
+  showM(`
+<div class="m-hdr"><h2>👤 Новый сдатчик</h2><button class="m-x" onclick="hideM()">×</button></div>
+<div class="fg c1">
+  <div class="fgrp"><label>Имя / Название</label><input type="text" id="cr-name" placeholder="Иванова Мария"></div>
+  <div class="fgrp"><label>Телефон</label><input type="tel" id="cr-phone" placeholder="+7 900 000-00-00"></div>
+  <div class="fgrp"><label>Примечание</label><input type="text" id="cr-note" placeholder="Необязательно"></div>
+</div>
+<div class="m-foot"><button class="btn btn-g" onclick="hideM()">Отмена</button><button class="btn btn-p" onclick="svAddConsignor()">💾 Сохранить</button></div>`);
+  setTimeout(()=>document.getElementById('cr-name')?.focus(),50);
+}
+function svAddConsignor(){
+  const name=document.getElementById('cr-name').value.trim();
+  if(!name){toast('Укажи имя сдатчика','err');return}
+  save(K.consignors,[...consignors(),{id:gid(),name,phone:document.getElementById('cr-phone').value,note:document.getElementById('cr-note').value,addedDate:today()}]);
+  hideM();render();toast('Сдатчик добавлен','ok');
+}
+function oEditConsignor(id){
+  const cr=consignors().find(c=>c.id===id);if(!cr)return;
+  showM(`
+<div class="m-hdr"><h2>✏️ Редактировать сдатчика</h2><button class="m-x" onclick="hideM()">×</button></div>
+<div class="fg c1">
+  <div class="fgrp"><label>Имя</label><input type="text" id="cr-name" value="${cr.name||''}"></div>
+  <div class="fgrp"><label>Телефон</label><input type="tel" id="cr-phone" value="${cr.phone||''}"></div>
+  <div class="fgrp"><label>Примечание</label><input type="text" id="cr-note" value="${cr.note||''}"></div>
+</div>
+<div class="m-foot"><button class="btn btn-g" onclick="hideM()">Отмена</button><button class="btn btn-p" onclick="svEditConsignor('${id}')">💾 Сохранить</button></div>`);
+}
+function svEditConsignor(id){
+  const name=document.getElementById('cr-name').value.trim();
+  if(!name){toast('Укажи имя','err');return}
+  save(K.consignors,consignors().map(c=>c.id===id?{...c,name,phone:document.getElementById('cr-phone').value,note:document.getElementById('cr-note').value}:c));
+  hideM();render();
+}
+function delConsignor(id){
+  if(!confirm('Удалить сдатчика? Его товары останутся в базе.'))return;
+  save(K.consignors,consignors().filter(c=>c.id!==id));render();
+}
+
+// ── Modals: Товары (с qty) ──
+function oAddConsignItem(){
+  const crs=consignors();
+  if(crs.length===0){toast('Сначала добавь сдатчика!','err');setTimeout(oAddConsignor,200);return;}
+  showM(`
+<div class="m-hdr"><h2>📦 Добавить товар на реализацию</h2><button class="m-x" onclick="hideM()">×</button></div>
+<div class="fg c1">
+  <div class="fgrp"><label>Сдатчик</label>
+    <select id="ci-cr">${crs.map(c=>`<option value="${c.id}">${c.name}${c.phone?' · '+c.phone:''}</option>`).join('')}</select>
+  </div>
+  <div class="fgrp"><label>Название товара</label><input type="text" id="ci-title" placeholder="Пальто Zara, размер M"></div>
+  <div class="fgrp"><label>Описание / Примечание (необязательно)</label><input type="text" id="ci-desc" placeholder="цвет, состояние..."></div>
+</div>
+<div class="fg">
+  <div class="fgrp"><label>Цена продажи за 1 шт (₽)</label>
+    <input type="number" id="ci-price" min="0" placeholder="2000" oninput="updateCiSplit()">
+  </div>
+  <div class="fgrp"><label>Количество (шт)</label>
+    <input type="number" id="ci-qty" min="1" value="1" placeholder="1" oninput="updateCiSplit()">
+  </div>
+</div>
+<div class="fgrp"><label>Дата приёма</label><input type="date" id="ci-date" value="${today()}"></div>
+<div id="ci-split-info" style="margin-top:10px;padding:12px 14px;background:rgba(168,85,247,.06);border:1px solid rgba(168,85,247,.2);border-radius:8px;font-size:12px">
+  <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+    <span style="color:var(--muted)">Схема 50/50 · За всё:</span>
+    <span>🏪 Магазину — <b id="ci-store">—</b> · 👤 Сдатчику — <b id="ci-owner">—</b></span>
+  </div>
+  <div style="font-size:10px;color:var(--muted)" id="ci-per-unit-info"></div>
+</div>
+<div class="m-foot"><button class="btn btn-g" onclick="hideM()">Отмена</button><button class="btn btn-p" onclick="svAddConsignItem()">💾 Сохранить</button></div>`);
+  setTimeout(()=>document.getElementById('ci-title')?.focus(),50);
+}
+function updateCiSplit(){
+  const v=+document.getElementById('ci-price')?.value||0;
+  const q=+document.getElementById('ci-qty')?.value||1;
+  const halfPer=Math.round(v*0.5);
+  const s=document.getElementById('ci-store'),o=document.getElementById('ci-owner');
+  const pu=document.getElementById('ci-per-unit-info');
+  if(s)s.textContent=halfPer>0?fr(halfPer*q):'—';
+  if(o)o.textContent=halfPer>0?fr(halfPer*q):'—';
+  if(pu)pu.textContent=q>1&&v?`${fr(halfPer)}/шт × ${q} шт`:'';
+}
+function svAddConsignItem(){
+  const title=document.getElementById('ci-title').value.trim();
+  const price=+document.getElementById('ci-price').value||0;
+  const qty=Math.max(1,+document.getElementById('ci-qty').value||1);
+  if(!title){toast('Укажи название товара','err');return}
+  if(!price){toast('Укажи цену продажи','err');return}
+  save(K.consignItems,[...consignItems(),{
+    id:gid(),consignorId:document.getElementById('ci-cr').value,
+    title,description:document.getElementById('ci-desc').value,
+    price,qty,soldQty:0,soldHistory:[],
+    addedDate:document.getElementById('ci-date').value||today(),status:'available'
+  }]);
+  hideM();render();toast(`Добавлено: ${qty} шт × ${fr(price)} ✅`,'ok');
+}
+function oEditConsignItem(id){
+  const item=consignItems().find(i=>i.id===id);if(!item)return;
+  const crs=consignors();
+  const sq=ciSoldQty(item),q=ciQty(item);
+  showM(`
+<div class="m-hdr"><h2>✏️ Редактировать товар</h2><button class="m-x" onclick="hideM()">×</button></div>
+<div class="fg c1">
+  <div class="fgrp"><label>Сдатчик</label>
+    <select id="ci-cr">${crs.map(c=>`<option value="${c.id}"${c.id===item.consignorId?' selected':''}>${c.name}</option>`).join('')}</select>
+  </div>
+  <div class="fgrp"><label>Название</label><input type="text" id="ci-title" value="${item.title||''}"></div>
+  <div class="fgrp"><label>Описание</label><input type="text" id="ci-desc" value="${item.description||''}"></div>
+</div>
+<div class="fg">
+  <div class="fgrp"><label>Цена за 1 шт (₽)</label><input type="number" id="ci-price" value="${item.price||0}" min="0"></div>
+  <div class="fgrp"><label>Принято всего (шт)</label><input type="number" id="ci-qty" value="${q}" min="1">
+    <div style="font-size:10px;color:var(--muted);margin-top:4px">Продано: ${sq} шт · Остаток: ${ciRemaining(item)} шт</div>
+  </div>
+</div>
+<div class="m-foot"><button class="btn btn-g" onclick="hideM()">Отмена</button><button class="btn btn-p" onclick="svEditConsignItem('${id}')">💾 Сохранить</button></div>`);
+}
+function svEditConsignItem(id){
+  const title=document.getElementById('ci-title').value.trim();
+  if(!title){toast('Укажи название','err');return}
+  const qty=Math.max(1,+document.getElementById('ci-qty').value||1);
+  const price=+document.getElementById('ci-price').value||0;
+  save(K.consignItems,consignItems().map(i=>{
+    if(i.id!==id)return i;
+    const sq=ciSoldQty(i);
+    const newStatus=sq>=qty?'sold':sq>0?'partial':'available';
+    return{...i,
+      consignorId:document.getElementById('ci-cr').value,
+      title,description:document.getElementById('ci-desc').value,
+      price,qty,status:newStatus
+    };
+  }));
+  hideM();render();
+}
+function delConsignItem(id){
+  if(!confirm('Удалить товар из системы?'))return;
+  save(K.consignItems,consignItems().filter(i=>i.id!==id));render();
+}
+
+// ── Modal: Отметить продан (ручной, с qty) ──
+function oMarkSold(id){
+  const item=consignItems().find(i=>i.id===id);if(!item)return;
+  const remaining=ciRemaining(item);
+  showM(`
+<div class="m-hdr"><h2>✅ Отметить как проданные</h2><button class="m-x" onclick="hideM()">×</button></div>
+<div style="padding:10px 0 14px">
+  <div style="font-size:15px;font-weight:700;color:var(--text)">${item.title}</div>
+  <div style="font-size:12px;color:var(--muted);margin-top:3px">Цена ярлыка: <b style="color:var(--accent)">${fr(item.price)}/шт</b> · Осталось: <b style="color:var(--success)">${remaining} шт</b></div>
+</div>
+<div class="fg">
+  <div class="fgrp"><label>Продано штук (макс. ${remaining})</label>
+    <input type="number" id="ms-qty" value="1" min="1" max="${remaining}" oninput="updateMsSplit()">
+  </div>
+  <div class="fgrp"><label>Цена продажи за шт (₽)</label>
+    <input type="number" id="ms-price" value="${item.price}" min="0" oninput="updateMsSplit()">
+  </div>
+</div>
+<div class="fgrp"><label>Дата продажи</label><input type="date" id="ms-date" value="${today()}"></div>
+<div style="margin-top:10px;padding:12px 14px;background:var(--surface2);border-radius:10px">
+  <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.8px;margin-bottom:8px">Расчёт выплат</div>
+  <div id="ms-split">${msSplitHtml(item.price,1)}</div>
+</div>
+<div class="m-foot"><button class="btn btn-g" onclick="hideM()">Отмена</button><button class="btn btn-p" onclick="svMarkSold('${id}')">✅ Продан!</button></div>`);
+}
+function msSplitHtml(price,qty){
+  const q=qty||1,p=price||0;
+  const total=q*p,half=Math.round(total*0.5);
+  return`<div style="display:flex;justify-content:space-between;margin-bottom:6px">
+    <span style="font-size:13px;color:var(--muted)">🏪 Магазину (50%)</span>
+    <span style="font-family:'JetBrains Mono',monospace;font-size:15px;font-weight:700;color:var(--success)">${fr(half)} ${q>1?`(${fr(Math.round(p*0.5))}/шт)`:''}</span>
+  </div>
+  <div style="display:flex;justify-content:space-between">
+    <span style="font-size:13px;color:var(--muted)">👤 Сдатчику (50%)</span>
+    <span style="font-family:'JetBrains Mono',monospace;font-size:15px;font-weight:700;color:var(--info)">${fr(half)} ${q>1?`(${fr(Math.round(p*0.5))}/шт)`:''}</span>
+  </div>`;
+}
+function updateMsSplit(){
+  const price=+document.getElementById('ms-price')?.value||0;
+  const qty=+document.getElementById('ms-qty')?.value||1;
+  const el=document.getElementById('ms-split');
+  if(el)el.innerHTML=msSplitHtml(price,qty);
+}
+function svMarkSold(id){
+  const price=+document.getElementById('ms-price').value||0;
+  const qty=+document.getElementById('ms-qty').value||1;
+  const date=document.getElementById('ms-date').value||today();
+  if(!price){toast('Укажи цену продажи','err');return}
+  if(!qty||qty<1){toast('Укажи количество','err');return}
+  save(K.consignItems,consignItems().map(i=>{
+    if(i.id!==id)return i;
+    const history=[...(i.soldHistory||ciSoldHistory(i)).filter(h=>h.date!==date),{date,qty,price}];
+    const newSoldQty=history.reduce((a,h)=>a+(h.qty||0),0);
+    const q=ciQty(i);
+    return{...i,soldHistory:history,soldQty:newSoldQty,
+      status:newSoldQty>=q?'sold':newSoldQty>0?'partial':'available'};
+  }));
+  hideM();render();toast(`${qty} шт отмечено как проданные ✅`,'ok');
+}
+
+// ── Modal: Выплата сдатчику (qty-aware) ──
+function oPayConsignor(cid){
+  const cr=getConsignor(cid)||{name:'—'};
+  const owed=calcConsignOwed();
+  const data=owed[cid];if(!data||!data.items.length)return;
+  const weekStart=data.items.reduce((a,i)=>{
+    const dates=ciSoldHistory(i).map(h=>h.date);
+    const mn=dates.reduce((x,d)=>!x||d<x?d:x,null);
+    return!a||mn<a?mn:a;
+  },null);
+  const weekEnd=data.items.reduce((a,i)=>{
+    const dates=ciSoldHistory(i).map(h=>h.date);
+    const mx=dates.reduce((x,d)=>!x||d>x?d:x,null);
+    return!a||mx>a?mx:a;
+  },null);
+  const bal=calcBal();
+  showM(`
+<div class="m-hdr"><h2>💰 Выплата: ${cr.name}</h2><button class="m-x" onclick="hideM()">×</button></div>
+<div style="margin-bottom:14px;max-height:220px;overflow-y:auto">
+  ${data.items.map(i=>`
+  <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid rgba(255,255,255,.05)">
+    <div>
+      <div style="font-size:13px;font-weight:600">${i.title} <span style="color:#a855f7;font-family:'JetBrains Mono',monospace">×${i.unpaidQty}</span></div>
+      <div style="font-size:11px;color:var(--muted)">${fr(i.price)}/шт</div>
+    </div>
+    <div style="font-family:'JetBrains Mono',monospace;font-size:15px;font-weight:700;color:var(--info)">+${fr(Math.round(i.price*0.5*i.unpaidQty))}</div>
+  </div>`).join('')}
+</div>
+<div style="display:flex;justify-content:space-between;align-items:center;padding:12px 14px;background:var(--surface2);border-radius:10px;margin-bottom:16px">
+  <span style="font-weight:700">Итого к выплате</span>
+  <span style="font-family:'JetBrains Mono',monospace;font-size:22px;font-weight:700;color:var(--danger)">${fr(data.total)}</span>
+</div>
+
+<div class="fg">
+  <div class="fgrp"><label>Сумма выплаты (₽)</label><input type="number" id="pay-amount" value="${data.total}" min="0"></div>
+  <div class="fgrp"><label>Дата выплаты</label><input type="date" id="pay-date" value="${today()}"></div>
+</div>
+
+<div class="fgrp" style="margin-bottom:14px">
+  <label>Откуда платишь</label>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:6px">
+    <label id="pay-nal-lbl" onclick="selectPayType('nal')" style="display:flex;align-items:center;gap:10px;padding:10px 14px;border-radius:10px;cursor:pointer;border:2px solid var(--accent);background:rgba(249,115,22,.08)">
+      <input type="radio" name="pay-type" id="pay-nal" value="nal" checked style="accent-color:var(--accent);width:16px;height:16px">
+      <div>
+        <div style="font-size:12px;font-weight:700;color:var(--accent)">💵 Наличные</div>
+        <div style="font-size:10px;color:var(--muted);margin-top:1px">Касса: ${fr(bal.c)}</div>
+      </div>
+    </label>
+    <label id="pay-bzn-lbl" onclick="selectPayType('beznal')" style="display:flex;align-items:center;gap:10px;padding:10px 14px;border-radius:10px;cursor:pointer;border:2px solid var(--border);background:transparent">
+      <input type="radio" name="pay-type" id="pay-bzn" value="beznal" style="accent-color:var(--info);width:16px;height:16px">
+      <div>
+        <div style="font-size:12px;font-weight:700;color:var(--info)">💳 Безналичные</div>
+        <div style="font-size:10px;color:var(--muted);margin-top:1px">Счёт: ${fr(bal.b)}</div>
+      </div>
+    </label>
+  </div>
+</div>
+
+<div class="fgrp" style="margin-bottom:4px"><label>Примечание</label><input type="text" id="pay-note" placeholder="необязательно"></div>
+
+<div style="padding:10px 14px;background:rgba(34,197,94,.06);border:1px solid rgba(34,197,94,.2);border-radius:8px;margin-top:12px;font-size:12px;color:var(--muted)">
+  <b style="color:var(--success)">✅ Автоматически</b> создастся запись расхода в разделе «Расходы» и уменьшится баланс кассы/счёта.
+</div>
+
+<div class="m-foot"><button class="btn btn-g" onclick="hideM()">Отмена</button><button class="btn btn-p" style="background:var(--success)" onclick="svPayConsignor('${cid}','${weekStart||today()}','${weekEnd||today()}')">✅ Подтвердить выплату</button></div>`);
+}
+
+function selectPayType(type){
+  const nalLbl=document.getElementById('pay-nal-lbl');
+  const bznLbl=document.getElementById('pay-bzn-lbl');
+  const nalRad=document.getElementById('pay-nal');
+  const bznRad=document.getElementById('pay-bzn');
+  if(type==='nal'){
+    nalRad.checked=true;
+    if(nalLbl){nalLbl.style.border='2px solid var(--accent)';nalLbl.style.background='rgba(249,115,22,.08)';}
+    if(bznLbl){bznLbl.style.border='2px solid var(--border)';bznLbl.style.background='transparent';}
+  } else {
+    bznRad.checked=true;
+    if(bznLbl){bznLbl.style.border='2px solid var(--info)';bznLbl.style.background='rgba(59,130,246,.08)';}
+    if(nalLbl){nalLbl.style.border='2px solid var(--border)';nalLbl.style.background='transparent';}
+  }
+}
+
+function svPayConsignor(cid,weekStart,weekEnd){
+  const owed=calcConsignOwed();
+  const data=owed[cid];if(!data)return;
+  const cr=getConsignor(cid)||{name:'—'};
+  const amount=+document.getElementById('pay-amount').value||0;
+  if(!amount){toast('Укажи сумму','err');return}
+  const date=document.getElementById('pay-date').value||today();
+  const note=document.getElementById('pay-note').value;
+  const payType=document.querySelector('input[name="pay-type"]:checked')?.value||'nal';
+
+  // 1. Сохранить запись выплаты
+  const payItems=data.items.map(i=>({itemId:i.id,qtyPaid:i.unpaidQty,pricePer:i.price}));
+  save(K.consignPayouts,[...consignPayouts(),{
+    id:gid(),consignorId:cid,amount,date,note,payType,
+    items:payItems,itemIds:data.items.map(i=>i.id),
+    weekStart,weekEnd
+  }]);
+
+  // 2. Автоматически создать запись расхода
+  const itemsDesc=data.items.map(i=>`${i.title}×${i.unpaidQty}`).join(', ');
+  const expense={
+    id:gid(),
+    date,
+    description:`Выплата сдатчику: ${cr.name}`,
+    category:'Выплаты реализации',
+    nal:payType==='nal'?amount:0,
+    beznal:payType==='beznal'?amount:0,
+    fundSource:'business',
+    note:note||`Реализация: ${itemsDesc}`,
+    _consignPayout:true // маркер для аудита
+  };
+  save(K.expenses,[...exps(),expense]);
+
+  hideM();render();
+  const typeLabel=payType==='nal'?'из наличных 💵':'с безнала 💳';
+  toast(`Выплата ${fr(amount)} ${typeLabel} сохранена и добавлена в расходы ✅`,'ok',4000);
+}
+function delConsignPayout(id){
+  if(!confirm('Удалить запись о выплате?\n\nВнимание: связанная запись расхода НЕ удаляется автоматически — удали её вручную в разделе Расходы если нужно.'))return;
+  save(K.consignPayouts,consignPayouts().filter(p=>p.id!==id));render();toast('Выплата удалена','ok');
+}
+// ═══════════════════════════════════════════════════════
 
 if(!load(K.settings))save(K.settings,{...DEF});
 // ── Migration: fill missing fundSource → 'business' ──
