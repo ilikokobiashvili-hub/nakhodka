@@ -1953,6 +1953,7 @@ function rAudit(){
   avitoSales().forEach(x=>{if(x.payType==='nal')manNal+=x.total||0;else manBzn+=(x.total||0)*(1-acqRate);});
   ee.filter(x=>x.category!=='Товар/Палеты'&&x.category!=='Доставка'&&x.fundSource!=='founder').forEach(x=>{manNal-=x.nal||0;manBzn-=x.beznal||0;});
   bb.forEach(x=>{getBatchPayments(x).forEach(p=>{if(p.source==='founder')return;if(p.type==='безнал')manBzn-=p.amount||0;else manNal-=p.amount||0;});});
+  transfers().forEach(x=>{const a=x.amount||0;if((x.dir||'beznal_to_nal')==='beznal_to_nal'){manBzn-=a;manNal+=a;}else{manNal-=a;manBzn+=a;}});
   const nalDiff=Math.abs(bal.c-manNal), bznDiff=Math.abs(bal.b-manBzn);
   if(nalDiff<1&&bznDiff<1) ok('Баланс: расчёт консистентен',`НАЛ ${fr(bal.c)} · БЕЗНАЛ ${fr(bal.b)}`);
   else err(`Баланс: расхождение НАЛ ${fr(nalDiff)} БЕЗНАЛ ${fr(bznDiff)}`,`calcBal() и ручной пересчёт не совпадают`);
