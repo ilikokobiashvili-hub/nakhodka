@@ -265,7 +265,7 @@ const DEF_PRICE_CATS=[
   {key:'xl5',  label:'5XL',  price:4999},
 ];
 const TIER_COLORS=['#6366f1','#22c55e','#f97316','#eab308','#ef4444','#ec4899','#14b8a6','#a855f7','#fb923c','#84cc16'];
-function priceCats(){const s=load(K.settings);return(s&&s.priceCats&&s.priceCats.length)?s.priceCats:DEF_PRICE_CATS;}
+function priceCats(){const s=cfgData();return(s&&s.priceCats&&s.priceCats.length)?s.priceCats:DEF_PRICE_CATS;}
 
 function load(k){try{const r=localStorage.getItem(k);return r?JSON.parse(r):null}catch{return null}}
 function save(k,d){try{localStorage.setItem(k,JSON.stringify(d))}catch{}}
@@ -332,7 +332,7 @@ function calcPeriod(f,t){
 }
 
 function calcMonth(){
-  const now=new Date(),ym=now.toISOString().slice(0,7),s=cfg();
+  const now=new Date(),ym=now.toISOString().slice(0,7),s=cfgData();
   const f=new Date(now.getFullYear(),now.getMonth(),1).toISOString().slice(0,10);
   const t=today();
   return calcPeriod(f,t);
@@ -430,8 +430,9 @@ function calcDyn(){
 
 // ═══ NAV ═══
 let page='dashboard';
+const _VIEW_BLOCKED=['expenses','sales','batches','settings','audit'];
 function nav(p){
-  if(_viewMode&&p==='expenses')return; // expenses blocked in view mode
+  if(_viewMode&&_VIEW_BLOCKED.includes(p))return; // block edit/admin pages in view mode
   page=p;
   document.querySelectorAll('.nav-item').forEach(el=>el.classList.toggle('active',el.dataset.p===p));
   render();
@@ -489,7 +490,7 @@ function render(){
   c.innerHTML=(pages[page]||rDash)();
   execScripts(c);
   if(page==='analysis') requestAnimationFrame(()=>requestAnimationFrame(_initAnCharts));
-  const s=cfg();
+  const s=cfgData();
   document.getElementById('sb-sub').textContent=s.storeName||'Розница · Секонд-хенд';
   updateSbStats();
 }
@@ -506,7 +507,7 @@ function setDashPeriod(p){dashPeriod=p;render();}
 
 function rDash(){
   const r=dashRange();
-  const cm=calcPeriod(r.f,r.t),bal=calcBal(),s=cfg();
+  const cm=calcPeriod(r.f,r.t),bal=calcBal(),s=cfgData();
   const acqRate=s.acquiringRate!=null?s.acquiringRate:0.0195;
   const cats=priceCats();
   const hasTiers=Object.values(cm.tierTotals).some(v=>v.qty>0);
@@ -1053,7 +1054,7 @@ function rPnL(){
 
 // ─── COGS PAGE (Себестоимость) ───
 function calcMethod2Cogs(salesList){
-  const bb=batches().filter(x=>x.cogsItems&&x.cogsItems.length>0);
+  const bb=batchesData().filter(x=>x.cogsItems&&x.cogsItems.length>0);
   if(!bb.length)return null;
   let totalInvested=0,totalPotRev=0;
   bb.forEach(b=>{
@@ -1090,8 +1091,8 @@ function calcMethod2Cogs(salesList){
 }
 
 function calcSellThrough(){
-  const bb=batches();
-  const ss=sales();
+  const bb=batchesData();
+  const ss=salesData();
   const cats=priceCats();
   // Purchased per tier from cogsItems
   const purchased={};cats.forEach(c=>{purchased[c.key]=0;});
@@ -1185,10 +1186,10 @@ function readWriteoffs(){
 }
 
 function rCogsPage(){
-  const bb=batches();
+  const bb=batchesData();
   const cogsBatches=bb.filter(x=>x.cogsItems&&x.cogsItems.length>0).sort((a,b)=>b.date.localeCompare(a.date));
   const cats=priceCats();
-  const allSales=sales();
+  const allSales=salesData();
 
   if(cogsBatches.length===0){
     return`<div class="page-hdr"><div><div class="page-title">Себестоимость — Метод 2</div><div class="page-sub">Распределение затрат пропорционально продажной цене</div></div></div>
@@ -1441,26 +1442,28 @@ ${cogsBatches.length>0?`<div class="card" style="margin-bottom:20px">
 
 // ─── CASHFLOW ───
 function rCash(){
-  const bal=calcBal(),s=cfg();
+  const bal=calcBal(),s=cfgData();
   const acqRate=s.acquiringRate!=null?s.acquiringRate:0.0195;
+  const _avito=_viewMode&&_gistData?(_gistData.avito||[]):avitoSales();
+  const _transfers=_viewMode&&_gistData?(_gistData.transfers||[]):transfers();
   // Collect all unique dates: sales, avito, expenses, AND each individual batch payment date, AND transfers
   const allD=new Set([
-    ...sales().map(x=>x.date),
-    ...avitoSales().map(x=>x.date),
-    ...exps().map(x=>x.date),
-    ...batches().flatMap(x=>getBatchPayments(x).map(p=>p.date||x.date)),
-    ...transfers().map(x=>x.date)
+    ...salesData().map(x=>x.date),
+    ..._avito.map(x=>x.date),
+    ...expsData().map(x=>x.date),
+    ...batchesData().flatMap(x=>getBatchPayments(x).map(p=>p.date||x.date)),
+    ..._transfers.map(x=>x.date)
   ]);
   const dates=Array.from(allD).sort();
   let c=s.cashBalance||0,b=s.beznalBalance||0;
   const rows=dates.map(d=>{
-    const ds=sales().filter(x=>x.date===d);
-    const dav=avitoSales().filter(x=>x.date===d);
+    const ds=salesData().filter(x=>x.date===d);
+    const dav=_avito.filter(x=>x.date===d);
     // Only business-funded expenses affect cash
-    const de=exps().filter(x=>x.date===d&&x.category!=='Товар/Палеты'&&x.category!=='Доставка'&&x.fundSource!=='founder');
+    const de=expsData().filter(x=>x.date===d&&x.category!=='Товар/Палеты'&&x.category!=='Доставка'&&x.fundSource!=='founder');
     // Collect all business batch payments for this date (across all batches, by payment date)
     const bPays=[];
-    batches().forEach(x=>getBatchPayments(x).forEach(p=>{
+    batchesData().forEach(x=>getBatchPayments(x).forEach(p=>{
       if((p.date||x.date)===d&&p.source!=='founder')bPays.push(p);
     }));
     const avNal=dav.filter(x=>x.payType==='nal').reduce((a,x)=>a+(x.total||0),0);
@@ -1473,19 +1476,19 @@ function rCash(){
     const outc=de.reduce((a,x)=>a+(x.nal||0),0)+bPays.filter(p=>p.type!=='безнал').reduce((a,p)=>a+(p.amount||0),0);
     const outb=de.reduce((a,x)=>a+(x.beznal||0),0)+bPays.filter(p=>p.type==='безнал').reduce((a,p)=>a+(p.amount||0),0);
     // Transfers for this date (both directions)
-    const dayTransfers=transfers().filter(x=>x.date===d);
+    const dayTransfers=_transfers.filter(x=>x.date===d);
     const trToNal=dayTransfers.filter(x=>(x.dir||'beznal_to_nal')==='beznal_to_nal').reduce((a,x)=>a+(x.amount||0),0);
     const trToBzn=dayTransfers.filter(x=>x.dir==='nal_to_beznal').reduce((a,x)=>a+(x.amount||0),0);
     c+=inc-outc+trToNal-trToBzn; b+=inb-outb-trToNal+trToBzn;
     return{d,inc,inbGross,inbAcq,inb,outc,outb,trToNal,trToBzn,dayTransfers,c,b};
   });
-  const founderExp=exps().filter(x=>x.fundSource==='founder'&&x.category!=='Товар/Палеты'&&x.category!=='Доставка').reduce((a,x)=>a+(x.nal||0)+(x.beznal||0),0);
-  const founderBatch=batches().flatMap(x=>getBatchPayments(x)).filter(p=>p.source==='founder').reduce((a,p)=>a+(p.amount||0),0);
+  const founderExp=expsData().filter(x=>x.fundSource==='founder'&&x.category!=='Товар/Палеты'&&x.category!=='Доставка').reduce((a,x)=>a+(x.nal||0)+(x.beznal||0),0);
+  const founderBatch=batchesData().flatMap(x=>getBatchPayments(x)).filter(p=>p.source==='founder').reduce((a,p)=>a+(p.amount||0),0);
   const founderTotal=founderExp+founderBatch;
   const totalAcq=rows.reduce((a,r)=>a+r.inbAcq,0);
-  const totalTransfers=transfers().reduce((a,x)=>a+(x.amount||0),0);
-  const totalToNal=transfers().filter(x=>(x.dir||'beznal_to_nal')==='beznal_to_nal').reduce((a,x)=>a+(x.amount||0),0);
-  const totalToBzn=transfers().filter(x=>x.dir==='nal_to_beznal').reduce((a,x)=>a+(x.amount||0),0);
+  const totalTransfers=_transfers.reduce((a,x)=>a+(x.amount||0),0);
+  const totalToNal=_transfers.filter(x=>(x.dir||'beznal_to_nal')==='beznal_to_nal').reduce((a,x)=>a+(x.amount||0),0);
+  const totalToBzn=_transfers.filter(x=>x.dir==='nal_to_beznal').reduce((a,x)=>a+(x.amount||0),0);
   return`
 <div class="page-hdr"><div><div class="page-title">Кэш-флоу</div><div class="page-sub">Динамика движения денег бизнеса</div></div>
 <button class="btn btn-p" onclick="oAddTransfer()">⇄ Безнал → Нал</button></div>
@@ -1503,11 +1506,11 @@ ${founderTotal>0?`<div style="background:rgba(168,85,247,.06);border:1px solid r
 ${totalAcq>0?`<div style="background:rgba(59,130,246,.06);border:1px solid rgba(59,130,246,.25);border-radius:10px;padding:12px 18px;margin-bottom:16px;font-size:12px;color:var(--muted)">
   💳 <b style="color:var(--info)">Приход БЕЗНАЛ = сумма Эвотора − комиссия эквайринга ${fp(acqRate)}</b> — в таблице показаны реальные суммы, которые зачисляет банк. Итого удержано: <b style="color:var(--info)">${fr(totalAcq)}</b>
 </div>`:''}
-${transfers().length>0?`
+${_transfers.length>0?`
 <div class="card" style="margin-bottom:20px">
   <div class="card-hdr"><h3>⇄ Переводы между кассой и счётом</h3></div>
   <div class="tbl-wrap"><table><thead><tr><th>Дата</th><th>Направление</th><th>Примечание</th><th class="r">Сумма</th><th></th></tr></thead>
-  <tbody>${[...transfers()].sort((a,b)=>b.date.localeCompare(a.date)).map(t=>{
+  <tbody>${[..._transfers].sort((a,b)=>b.date.localeCompare(a.date)).map(t=>{
     const isBToN=(t.dir||'beznal_to_nal')==='beznal_to_nal';
     return`<tr>
     <td>${fd(t.date)}</td>
@@ -1562,9 +1565,13 @@ function rDyn(){
 }
 
 // ─── PLAN vs FACT ───
+// Global vars used by oEditPlan()
+let _pfStart=new Date(),_pfPlans=[];
 function rPF(){
-  const pp=plans(),dyn=calcDyn(),s=cfg();
+  const pp=plansData(),dyn=calcDyn(),s=cfgData();
   const start=new Date(s.startDate||'2026-03-01');
+  // Store globally so oEditPlan() can access them
+  _pfStart=start; _pfPlans=pp;
   const ms12=[];
   for(let i=0;i<12;i++){const d=new Date(start.getFullYear(),start.getMonth()+i,1);ms12.push(d.toISOString().slice(0,7))}
   return`
@@ -1622,9 +1629,9 @@ function anDateBar(minD,maxD){
 }
 
 function rAnalysis(){
-  const s=cfg();
+  const s=cfgData();
   const acqRate=s.acquiringRate!=null?s.acquiringRate:0.0195;
-  const allSalesRaw=sales().sort((a,b)=>a.date.localeCompare(b.date));
+  const allSalesRaw=salesData().sort((a,b)=>a.date.localeCompare(b.date));
 
   if(allSalesRaw.length===0)return`<div class="page-hdr"><div class="page-title">🧠 Финансовый анализ</div></div><div class="empty" style="padding:80px">Нет данных. Добавь продажи чтобы увидеть анализ.</div>`;
 
@@ -1634,8 +1641,8 @@ function rAnalysis(){
   if(!_anTo||_anTo>maxDate)_anTo=maxDate;
 
   const allSales=allSalesRaw.filter(x=>x.date>=_anFrom&&x.date<=_anTo);
-  const allExps=exps().filter(x=>x.date>=_anFrom&&x.date<=_anTo);
-  const allBatches=batches();
+  const allExps=expsData().filter(x=>x.date>=_anFrom&&x.date<=_anTo);
+  const allBatches=batchesData();
 
   if(allSales.length===0)return`<div class="page-hdr"><div><div class="page-title">🧠 Финансовый анализ</div><div class="page-sub">Выбери другой период</div></div></div>${anDateBar(minDate,maxDate)}<div class="empty" style="padding:60px">За выбранный период продаж нет.</div>`;
 
@@ -1686,7 +1693,7 @@ function rAnalysis(){
 
   // ── Stock ──
   const totalUnits=allBatches.reduce((a,b)=>a+(b.units||0),0);
-  const soldUnitsAll=sales().reduce((a,x)=>{const ts=tierSums(x);return a+(ts?ts.qty:0);},0);
+  const soldUnitsAll=salesData().reduce((a,x)=>{const ts=tierSums(x);return a+(ts?ts.qty:0);},0);
   const stockLeft=Math.max(0,totalUnits-soldUnitsAll);
   const sellRate=totalItems/nDays;
   const daysStock=sellRate>0?Math.floor(stockLeft/sellRate):999;
@@ -3766,7 +3773,7 @@ async function generateSyncCode(){
     let gistId=existingId;
     if(token){
       // Use GitHub if token available
-      const r=await fetch(url,{method,headers:{'Authorization':'token '+token,'Content-Type':'application/json'},body:JSON.stringify(body)});
+      const r=await fetch(url,{method,headers:{'Authorization':'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify(body)});
       if(!r.ok){const e=await r.json();throw new Error(e.message||r.status);}
       const j=await r.json();
       gistId=j.id;
@@ -3958,6 +3965,9 @@ function delTransfer(id){
 }
 
 function oEditPlan(){
+  // Use globally stored values set by rPF() — avoids ReferenceError
+  const start=_pfStart||new Date(cfgData().startDate||'2026-03-01');
+  const pp=_pfPlans||plansData();
   const ms=[];for(let i=0;i<12;i++){const d=new Date(start.getFullYear(),start.getMonth()+i,1);ms.push(d.toISOString().slice(0,7))}
   showM(`
 <div class="m-hdr"><h2>Редактировать план</h2><button class="m-x" onclick="hideM()">×</button></div>
@@ -4042,12 +4052,12 @@ function clearAll(){
 
 // ═══ PLANNING ═══
 function calcPlanning(){
-  const s=cfg();
+  const s=cfgData();
   const bal=calcBal();
   const totalCash=bal.c+bal.b;
-  const allSales=sales();
-  const allExp=exps();
-  const allBatch=batches();
+  const allSales=salesData();
+  const allExp=expsData();
+  const allBatch=batchesData();
 
   // ── Aggregate totals ──
   const totalRev=allSales.reduce((a,x)=>a+(x.nal||0)+(x.beznal||0),0);
@@ -4082,7 +4092,7 @@ function calcPlanning(){
   const businessProfit=totalRev-allExp.filter(x=>x.category!=='Товар/Палеты'&&x.category!=='Доставка').reduce((a,x)=>a+(x.nal||0)+(x.beznal||0),0)-allBatch.reduce((a,x)=>a+(x.cost||0)+(x.delivery||0),0)-totalTaxAccrued;
 
   // ── Gross margin from SOLD items (same logic as rAnalysis) ──
-  const allSalesAll=sales(),allAv=avitoSales(),allBB=batches();
+  const allSalesAll=salesData(),allAv=_viewMode&&_gistData?(_gistData.avito||[]):avitoSales(),allBB=batchesData();
   const acqRate=s.acquiringRate!=null?s.acquiringRate:0.0195;
   const _totalRev=allSalesAll.reduce((a,x)=>a+(x.nal||0)+(x.beznal||0),0);
   const _totalBzn=allSalesAll.reduce((a,x)=>a+(x.beznal||0),0);
@@ -4185,7 +4195,7 @@ function savePurchasePlan(){
 }
 
 function rPlanning(){
-  const p=calcPlanning(),s=cfg();
+  const p=calcPlanning(),s=cfgData();
   const {bal,totalCash,taxReserve,opBuffer,purchasePlan,lockedFunds,safeDividend,
          invested,withdrawn,avgRev,avgOpExp,avgCogs,fixedM,dailyBurn,daysOfCash,
          maxPurchaseBudget,minSafeBalance,businessProfit,totalTaxAccrued} = p;
@@ -4215,7 +4225,7 @@ function rPlanning(){
 </div>
 
 ${(()=>{
-  const s=cfg();
+  const s=cfgData();
   const fc=s.fixedCosts||[];
   const acqRate=s.acquiringRate!=null?s.acquiringRate:0.0195;
   const totalFixed=fc.reduce((a,x)=>a+(x.amount||0),0);
@@ -4234,7 +4244,7 @@ ${(()=>{
   const grossMarginPct=p.grossMarginReal||0;
 
   // ── Реальная доля безнала из последних 3 мес продаж ──
-  const allSalesArr=sales();
+  const allSalesArr=salesData();
   const today3=new Date();
   const threeMonthsAgo=new Date(today3.getFullYear(),today3.getMonth()-3,1).toISOString().slice(0,7);
   const recentSales=allSalesArr.filter(x=>x.date&&x.date.slice(0,7)>=threeMonthsAgo);
@@ -4253,7 +4263,7 @@ ${(()=>{
   // ── Факт: текущий ИДУЩИЙ месяц (не последний завершённый) ──
   const curYM=new Date().toISOString().slice(0,7);
   const curMonthSales=allSalesArr.filter(x=>x.date&&x.date.startsWith(curYM));
-  const curMonthAvito=avitoSales().filter(x=>x.date&&x.date.startsWith(curYM));
+  const curMonthAvito=(_viewMode&&_gistData?(_gistData.avito||[]):avitoSales()).filter(x=>x.date&&x.date.startsWith(curYM));
   const curMonthRev=curMonthSales.reduce((a,x)=>a+(x.nal||0)+(x.beznal||0),0)
                    +curMonthAvito.reduce((a,x)=>a+(x.total||0),0);
   // Если текущий месяц пустой — берём последний с данными
@@ -4574,22 +4584,45 @@ function plansData(){return _viewMode&&_gistData?(_gistData.plans||[]):plans();}
 function cfgData(){return _viewMode&&_gistData?(_gistData.settings||cfg()):cfg();}
 
 // ── Fetch Gist data (for view mode) ──
-async function fetchGistData(gistId){
+// In-memory cache: {data, ts} — refreshes after 60 seconds on manual reload only
+let _gistCache={data:null,ts:0,id:''};
+async function fetchGistData(gistId,forceRefresh){
+  const now=Date.now();
+  // Use cache if same gist and less than 60s old (unless forceRefresh)
+  if(!forceRefresh&&_gistCache.id===gistId&&_gistCache.data&&(now-_gistCache.ts)<60000){
+    return _gistCache.data;
+  }
   try{
-    // Add timestamp to bypass browser cache (no extra headers — avoids CORS preflight)
-    const ts=Date.now();
-    const r=await fetch('https://api.github.com/gists/'+gistId+'?_='+ts);
+    // Use standard fetch without cache-busting to stay within GitHub rate limits (60 req/hour anon)
+    const r=await fetch('https://api.github.com/gists/'+gistId,{
+      headers:{'Accept':'application/vnd.github.v3+json'}
+    });
+    if(r.status===403){
+      // Rate limited — try to return stale cache if available
+      if(_gistCache.data&&_gistCache.id===gistId)return _gistCache.data;
+      throw new Error('GitHub API: превышен лимит запросов. Подожди несколько минут и обнови страницу.');
+    }
     if(!r.ok)throw new Error('Gist не найден ('+r.status+')');
     const j=await r.json();
     const fileKey=Object.keys(j.files)[0];
     const file=j.files[fileKey];
-    // If file is truncated, fetch raw content
     let content=file.content;
+    // If file is truncated, fetch raw content via jsDelivr CDN proxy (CORS-friendly)
     if(file.truncated&&file.raw_url){
-      const r2=await fetch(file.raw_url+'?_='+ts);
-      if(r2.ok)content=await r2.text();
+      // Attempt raw_url directly first; if CORS fails, try via jsDelivr
+      try{
+        const r2=await fetch(file.raw_url);
+        if(r2.ok)content=await r2.text();
+      }catch(corsErr){
+        // raw_url CORS fallback — use jsDelivr gist CDN
+        const rawFallback='https://cdn.jsdelivr.net/gh/gist/'+gistId+'/'+encodeURIComponent(fileKey);
+        const r3=await fetch(rawFallback);
+        if(r3.ok)content=await r3.text();
+      }
     }
-    return JSON.parse(content);
+    const parsed=JSON.parse(content);
+    _gistCache={data:parsed,ts:now,id:gistId};
+    return parsed;
   }catch(e){throw new Error('Ошибка загрузки данных: '+e.message);}
 }
 
@@ -4617,6 +4650,8 @@ async function publishToGist(){
     const data={
       settings:safeSettings,sales:sales(),
       batches:batches(),plans:plans(),inventory:inventory(),avito:avitoSales(),
+      transfers:transfers(),
+      consignors:consignors(),consignItems:consignItems(),consignPayouts:consignPayouts(),
       expenseAggregate:_expAgg,
       calculatedBal:{c:_bal.c,b:_bal.b},
       publishedAt:new Date().toISOString()
@@ -4634,7 +4669,7 @@ async function publishToGist(){
 
     const r=await fetch(url,{
       method,
-      headers:{'Authorization':'token '+token,'Content-Type':'application/json'},
+      headers:{'Authorization':'Bearer '+token,'Content-Type':'application/json'},
       body:JSON.stringify(body)
     });
     if(!r.ok){
@@ -4710,7 +4745,7 @@ function viewModeBanner(){
   <div style="display:flex;align-items:center;gap:10px">
     <span style="background:rgba(168,85,247,.2);border:1px solid #a855f7;border-radius:20px;padding:3px 12px;font-size:11px;font-weight:700;color:#a855f7;letter-spacing:.8px">👁 РЕЖИМ ПРОСМОТРА</span>
     <span class="vb-detail" style="font-size:12px;color:var(--muted)">Обновлено: ${pub}</span>
-    <button onclick="location.reload()" style="background:rgba(168,85,247,.15);border:1px solid #a855f7;border-radius:6px;padding:3px 10px;font-size:11px;font-weight:600;color:#a855f7;cursor:pointer;font-family:Montserrat,sans-serif">🔄 Обновить</button>
+    <button onclick="refreshViewData(this)" style="background:rgba(168,85,247,.15);border:1px solid #a855f7;border-radius:6px;padding:3px 10px;font-size:11px;font-weight:600;color:#a855f7;cursor:pointer;font-family:Montserrat,sans-serif">🔄 Обновить</button>
   </div>
   <span class="vb-detail" style="font-size:11px;color:var(--muted)">Редактирование недоступно · Данные предоставлены владельцем</span>
 </div>`;
@@ -4719,6 +4754,24 @@ function viewModeBanner(){
 // Adjust content padding in view mode
 function viewModeStyle(){
   return _viewMode?'margin-top:44px':'';
+}
+
+// ── Force-refresh gist data (called by Обновить button) ──
+async function refreshViewData(btn){
+  if(btn){btn.textContent='⏳...';btn.disabled=true;}
+  try{
+    _gistData=await fetchGistData(_gistId,true); // forceRefresh=true
+    // Update banner timestamp
+    const pub=_gistData&&_gistData.publishedAt?new Date(_gistData.publishedAt).toLocaleString('ru-RU'):'—';
+    const ts=document.querySelector('#view-banner .vb-detail');
+    if(ts)ts.textContent='Обновлено: '+pub;
+    render();
+    toast('✅ Данные обновлены','ok',2000);
+  }catch(e){
+    toast('❌ '+e.message,'err',5000);
+  }finally{
+    if(btn){btn.textContent='🔄 Обновить';btn.disabled=false;}
+  }
 }
 
 // ── Init view mode ──
@@ -4770,11 +4823,11 @@ async function proceedViewMode(){
     // CORRUPT the admin's own data if they open the view link in their own browser.
     // Lock editing — hide all edit/delete/add buttons
     document.body.classList.add('is-view-mode');
-    // Lock editing nav items
+    // Lock/hide restricted nav items
     document.querySelectorAll('.nav-item[data-p="sales"],[data-p="batches"],[data-p="settings"]')
       .forEach(el=>{el.style.opacity='0.35';el.style.pointerEvents='none';});
-    // Hide expenses tab completely in view mode
-    document.querySelectorAll('.nav-item[data-p="expenses"]')
+    // Hide expenses and audit tabs completely in view mode
+    document.querySelectorAll('.nav-item[data-p="expenses"],.nav-item[data-p="audit"]')
       .forEach(el=>{el.style.display='none';});
     render();
   }catch(e){
@@ -4804,12 +4857,14 @@ function syncMobTabs(p){
 function showMoreMenu(){
   const pages=[
     ...(!_viewMode?[{p:'expenses',icon:'💸',label:'Расходы'}]:[]),
-    {p:'batches',icon:'📦',label:'Партии'},
+    ...(!_viewMode?[{p:'batches',icon:'📦',label:'Партии'}]:[]),
     {p:'cashflow',icon:'💵',label:'Кэш-флоу'},
     {p:'dynamics',icon:'📅',label:'Динамика'},
     {p:'planfact',icon:'🎯',label:'План vs Факт'},
     {p:'analysis',icon:'🧠',label:'Финанализ'},
-    {p:'settings',icon:'⚙️',label:'Настройки'},
+    {p:'consign',icon:'🤝',label:'Реализация'},
+    ...(!_viewMode?[{p:'settings',icon:'⚙️',label:'Настройки'}]:[]),
+    ...(!_viewMode?[{p:'audit',icon:'🔍',label:'Аудит'}]:[]),
   ];
   showM(`
 <div class="m-hdr"><h2>☰ Все разделы</h2><button class="m-x" onclick="hideM()">×</button></div>
@@ -4888,9 +4943,9 @@ function checkAutoBackup(){
 // ═══════════════════════════════════════════════════════
 // ═══ РЕАЛИЗАЦИЯ (КОНСИГНАЦИЯ) ═══
 // ═══════════════════════════════════════════════════════
-function consignors(){return load(K.consignors)||[]}
-function consignItems(){return load(K.consignItems)||[]}
-function consignPayouts(){return load(K.consignPayouts)||[]}
+function consignors(){return _viewMode&&_gistData?(_gistData.consignors||[]):load(K.consignors)||[]}
+function consignItems(){return _viewMode&&_gistData?(_gistData.consignItems||[]):load(K.consignItems)||[]}
+function consignPayouts(){return _viewMode&&_gistData?(_gistData.consignPayouts||[]):load(K.consignPayouts)||[]}
 function getConsignor(id){return consignors().find(c=>c.id===id)}
 
 // Qty-aware owed calculation
